@@ -41,7 +41,7 @@ let () = Lwt_main.run begin
 end
 ```
 
-## Limitations
+## Known Issues and Limitations
 
 - The processor is currently new and not well tested.  Please break it and
   file bug reports.
@@ -50,4 +50,6 @@ end
   other reasons a `Re_pcre` pattern may opt, please file a bug report.
 - Is it feasible to cover any reasonable ground with exhaustiveness checks?
   No attempt is currently made, and no warning is issued for a missing
-  match-all case.
+  catch-all case.
+- The extension does not work on top-level evals, but it works if you bind
+  to a unit value.
