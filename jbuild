@@ -1,0 +1,20 @@
+(jbuild_version 1)
+
+(library
+ ((name ppx_regexp)
+  (public_name ppx_regexp)
+  (kind ppx_rewriter)
+  (modules (ppx_regexp))
+  (preprocess (pps (ppx_metaquot)))
+  (libraries (ocaml-migrate-parsetree))))
+
+(executables
+ ((names (test_ppx_regexp))
+  (modules (test_ppx_regexp))
+  (libraries (re re.pcre))
+  (preprocess (pps (ppx_regexp)))))
+
+(alias
+ ((name runtest)
+  (deps (test_ppx_regexp.exe))
+  (action (run ${<}))))
