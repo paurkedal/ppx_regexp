@@ -41,7 +41,7 @@ let () = Lwt_main.run begin
 end
 ```
 
-### Limitations
+## Limitations
 
 - The processor is currently new and not well tested.  Please break it and
   file bug reports.
