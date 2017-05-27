@@ -13,8 +13,9 @@ into suitable invocations of the
 [Re library](https://github.com/ocaml/ocaml-re).  The patterns are plain
 strings of the form accepted by `Re_pcre`, except groups can be bound to
 variables using the syntax `(?<var>...)`.  The type of `var` will be
-`string` if a match is guaranteed, and `string option` if the variable is
-bound to an optionally matched group.
+`string` if a match is of the groups is guaranteed given a match of the
+whole pattern, and `string option` if the variable is bound to or nested
+below an optionally matched group.
 
 ## Example
 
@@ -39,3 +40,14 @@ let () = Lwt_main.run begin
   Lwt_stream.iter_s check_line (Lwt_io.lines_of_file "/var/log/syslog")
 end
 ```
+
+### Limitations
+
+- The processor is currently new and not well tested.  Please break it and
+  file bug reports.
+- Pattern guards are not implemented.
+- Optional patterns due to `?`, `*`, and `{0,n}` are detected.  If you find
+  other reasons a `Re_pcre` pattern may opt, please file a bug report.
+- Is it feasible to cover any reasonable ground with exhaustiveness checks?
+  No attempt is currently made, and no warning is issued for a missing
+  match-all case.
