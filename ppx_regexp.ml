@@ -41,7 +41,7 @@ let extract_bindings ~loc p =
   let
     rec parse_normal nG stack bs i =
       if i = l then
-        if stack = [] then bs else
+        if stack = [] then (bs, nG) else
         error ~loc "Unmatched start of group."
       else begin
         Buffer.add_char buf p.[i];
@@ -52,7 +52,7 @@ let extract_bindings ~loc p =
          | _ ->    parse_normal nG stack bs (i + 1))
       end
     and parse_escape nG stack bs i =
-      if i = l then bs else begin
+      if i = l then (bs, nG) else begin
         Buffer.add_char buf p.[i];
         parse_normal nG stack bs (i + 1)
       end
@@ -81,8 +81,8 @@ let extract_bindings ~loc p =
       in
       parse_normal nG stack' (List.rev_append bs bs') i
   in
-  let bs = parse_normal 1 [] [] 0 in
-  (Buffer.contents buf, bs)
+  let bs, nG = parse_normal 0 [] [] 0 in
+  (Buffer.contents buf, bs, nG)
 
 let transform_cases ~loc e cases =
   let aux case =
@@ -90,15 +90,15 @@ let transform_cases ~loc e cases =
       error ~loc "Guards are not implemented for match%pcre." else
     (match case.pc_lhs with
      | {ppat_desc = Ppat_any} ->
-        (Exp.constant (Const.string ""), [], case.pc_rhs)
+        (Exp.constant (Const.string ""), 0, [], case.pc_rhs)
      | {ppat_desc = Ppat_constant (Pconst_string (re_src,_)); ppat_loc = loc} ->
-        let re_str, bs = extract_bindings ~loc re_src in
-        (Exp.constant (Const.string re_str), bs, case.pc_rhs)
+        let re_str, bs, nG = extract_bindings ~loc re_src in
+        (Exp.constant (Const.string re_str), nG, bs, case.pc_rhs)
      | {ppat_loc = loc} ->
         error ~loc "Regular expression pattern should be a string.")
   in
   let cases = List.map aux cases in
-  let res = Exp.array (List.map (fun (re, _, _) -> re) cases) in
+  let res = Exp.array (List.map (fun (re, _, _, _) -> re) cases) in
   let comp = [%expr
     let a = Array.map (fun s -> Re.mark (Re_pcre.re s)) [%e res] in
     let marks = Array.map fst a in
@@ -109,27 +109,29 @@ let transform_cases ~loc e cases =
   add_binding (Vb.mk (Pat.var {txt = var; loc}) comp);
   let e_comp = Exp.ident {txt = Lident var; loc} in
 
-  let rec wrap_groups rhs = function
+  let rec wrap_groups rhs offG = function
    | [] -> rhs
    | (varG, iG, mustG) :: bs ->
-      let eG = [%expr Re.Group.get _g [%e Exp.constant (Const.int iG)]] in
+      let eG =
+        [%expr Re.Group.get _g [%e Exp.constant (Const.int (offG + iG + 1))]]
+      in
       let eG =
         if mustG then eG else
         [%expr try Some [%e eG] with Not_found -> None]
       in
       [%expr
         let [%p Pat.var {txt = varG; loc}] = [%e eG] in
-        [%e wrap_groups rhs bs]]
+        [%e wrap_groups rhs offG bs]]
   in
-  let rec handle_cases i = function
+  let rec handle_cases i offG = function
    | [] -> [%expr assert false]
-   | (_, bs, rhs) :: cases ->
+   | (_, nG, bs, rhs) :: cases ->
       let e_i = Exp.constant (Const.int i) in
       [%expr
         if Re.Mark.test _g (snd [%e e_comp]).([%e e_i]) then
-          [%e wrap_groups rhs bs]
+          [%e wrap_groups rhs offG bs]
         else
-          [%e handle_cases (i + 1) cases]]
+          [%e handle_cases (i + 1) (offG + nG) cases]]
   in
   let pos = loc.loc_start in
   let e0 = Exp.constant (Const.string pos.pos_fname) in
@@ -140,7 +142,7 @@ let transform_cases ~loc e cases =
       try Re.exec (fst [%e e_comp]) [%e e] with
         Not_found -> raise (Match_failure ([%e e0], [%e e1], [%e e2]))
     in
-    [%e handle_cases 0 cases]]
+    [%e handle_cases 0 0 cases]]
 
 let rewrite_expr mapper e_ext =
   (match e_ext.pexp_desc with

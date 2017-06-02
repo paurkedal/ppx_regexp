@@ -16,10 +16,13 @@
 
 let f =
   (function%pcre
-   | {|^(?<k>.*): *(?<v>.+)?$|} -> Some (k, v)
-   | _ -> None)
+   | {|^(?<k>.*): *(?<v>.+)?$|} -> `Attr (k, v)
+   | {|^# (?<comment>.+)$|} -> `Comment comment
+   | _ -> `Unknown)
 
-let () = assert (f "x: 1" = Some ("x", Some "1"))
+let () =
+  assert (f "x: 1" = `Attr ("x", Some "1"));
+  assert (f "# Kommentar" = `Comment "Kommentar")
 
 module F (M : Map.OrderedType) = struct
   let f x =
