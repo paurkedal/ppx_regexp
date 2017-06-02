@@ -20,3 +20,16 @@ let f =
    | _ -> None)
 
 let () = assert (f "x: 1" = Some ("x", Some "1"))
+
+module F (M : Map.OrderedType) = struct
+  let f x =
+    (match%pcre x with
+     | {|#(?<space>\s)?(?<comment>.*)|} -> Some (space <> None, comment)
+     | _ -> None)
+end
+
+let r = ref false
+;;(match%pcre "" with
+   | "$^" -> r := true
+   | _ -> assert false)
+;;assert (!r = true)

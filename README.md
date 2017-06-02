@@ -51,5 +51,3 @@ end
 - Is it feasible to cover any reasonable ground with exhaustiveness checks?
   No attempt is currently made, and no warning is issued for a missing
   catch-all case.
-- The extension does not work on top-level evals, but it works if you bind
-  to a unit value.

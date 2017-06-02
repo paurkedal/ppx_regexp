@@ -26,7 +26,6 @@ open Longident
 
 let error ~loc msg = raise (Location.Error (Location.error ~loc msg))
 
-let dyn_istop = ref true
 let dyn_bindings = ref []
 let clear_bindings () = dyn_bindings := []
 let add_binding binding = dyn_bindings := binding :: !dyn_bindings
@@ -156,24 +155,19 @@ let rewrite_expr mapper e_ext =
           error ~loc "[%pcre] only applies to match an function.")
    | _ -> default_mapper.expr mapper e_ext)
 
-let rewrite_value_binding mapper pvb =
-  let istop = !dyn_istop in
-  dyn_istop := false;
-  let pvb = default_mapper.value_binding mapper pvb in
-  dyn_istop := istop;
-  if not istop then pvb else
-  (match get_bindings () with
-   | [] -> pvb
+let rewrite_structure mapper sis =
+  let sis' =
+    default_mapper.structure {default_mapper with expr = rewrite_expr} sis
+  in
+  (match get_bindings () |> List.rev with
+   | [] -> sis'
    | bindings ->
       clear_bindings ();
-      let e_let = {pexp_desc = Pexp_let (Nonrecursive, bindings, pvb.pvb_expr);
-                   pexp_loc = pvb.pvb_loc; pexp_attributes = []} in
-      {pvb with pvb_expr = e_let})
+      let si' = {
+        pstr_desc = Pstr_value (Nonrecursive, bindings);
+        pstr_loc = Location.none;
+      } in
+      si' :: sis')
 
-let regexp_mapper _config _cookies = {
-  default_mapper with
-  value_binding = rewrite_value_binding;
-  expr = rewrite_expr;
-}
-
-let () = Driver.register ~name:"ppx_regexp" ocaml_version regexp_mapper
+let () = Driver.register ~name:"ppx_regexp" ocaml_version
+  (fun _config _cookies -> {default_mapper with structure = rewrite_structure})
