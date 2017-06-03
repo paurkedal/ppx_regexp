@@ -103,6 +103,9 @@ let transform_cases ~loc e cases =
         (Exp.constant (Const.string ""), 0, [], case.pc_rhs)
      | {ppat_desc = Ppat_constant (Pconst_string (re_src,_)); ppat_loc = loc} ->
         let re_str, bs, nG = extract_bindings ~loc re_src in
+        (try ignore (Re_pcre.regexp re_str) with
+         | Re_perl.Not_supported -> error ~loc "Unsupported regular expression."
+         | Re_perl.Parse_error -> error ~loc "Invalid regular expression.");
         (Exp.constant (Const.string re_str), nG, bs, case.pc_rhs)
      | {ppat_loc = loc} ->
         error ~loc "Regular expression pattern should be a string.")

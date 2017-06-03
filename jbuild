@@ -6,7 +6,7 @@
   (kind ppx_rewriter)
   (modules (ppx_regexp))
   (preprocess (pps (ppx_metaquot)))
-  (libraries (ocaml-migrate-parsetree))))
+  (libraries (re re.pcre ocaml-migrate-parsetree))))
 
 (executables
  ((names (test_ppx_regexp))
