@@ -35,6 +35,18 @@ let fresh_var =
   let c = ref 0 in
   fun () -> incr c; Printf.sprintf "_ppx_regexp_%d" !c
 
+let rec must_match p i =
+  let l = String.length p in
+  if i = l then true else
+  if p.[i] = '?' || p.[i] = '*' then false else
+  if p.[i] = '{' then
+    let j = String.index_from p (i + 1) '}' in
+    (match String.split_on_char ',' (String.sub p (i + 1) (j - i - 1)) with
+     | k :: _ when int_of_string k = 0 -> false
+     | _ -> must_match p (j + 1))
+  else
+    true
+
 let extract_bindings ~loc p =
   let l = String.length p in
   let buf = Buffer.create l in
@@ -74,10 +86,8 @@ let extract_bindings ~loc p =
             (bs, bs', stack'))
       in
       let bs =
-        if i < l && (p.[i] = '?' || p.[i] = '*') ||
-           i + 2 < l && p.[i] = '{' && p.[i + 1] = '0' && p.[i + 2] = ','
-        then List.map (fun (varG, iG, _) -> (varG, iG, false)) bs
-        else bs
+        if must_match p i then bs else
+        List.map (fun (varG, iG, _) -> (varG, iG, false)) bs
       in
       parse_normal nG stack' (List.rev_append bs bs') i
   in
