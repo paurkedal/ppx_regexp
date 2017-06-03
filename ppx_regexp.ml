@@ -99,18 +99,29 @@ let transform_cases ~loc e cases =
     if case.pc_guard <> None then
       error ~loc "Guards are not implemented for match%pcre." else
     (match case.pc_lhs with
-     | {ppat_desc = Ppat_any} ->
-        (Exp.constant (Const.string ""), 0, [], case.pc_rhs)
      | {ppat_desc = Ppat_constant (Pconst_string (re_src,_)); ppat_loc = loc} ->
         let re_str, bs, nG = extract_bindings ~loc re_src in
         (try ignore (Re_pcre.regexp re_str) with
          | Re_perl.Not_supported -> error ~loc "Unsupported regular expression."
          | Re_perl.Parse_error -> error ~loc "Invalid regular expression.");
         (Exp.constant (Const.string re_str), nG, bs, case.pc_rhs)
+     | {ppat_desc = Ppat_any} ->
+        error ~loc "Universal wildcard must be the last pattern."
      | {ppat_loc = loc} ->
         error ~loc "Regular expression pattern should be a string.")
   in
-  let cases = List.map aux cases in
+  let cases, default_rhs =
+    (match List.rev cases with
+     | {pc_lhs = {ppat_desc = Ppat_any}; pc_rhs} :: cases ->
+        (cases, pc_rhs)
+     | cases ->
+        let pos = loc.loc_start in
+        let e0 = Exp.constant (Const.string pos.pos_fname) in
+        let e1 = Exp.constant (Const.int pos.pos_lnum) in
+        let e2 = Exp.constant (Const.int (pos.pos_cnum - pos.pos_bol)) in
+        (cases, [%expr raise (Match_failure ([%e e0], [%e e1], [%e e2]))]))
+  in
+  let cases = List.rev_map aux cases in
   let res = Exp.array (List.map (fun (re, _, _, _) -> re) cases) in
   let comp = [%expr
     let a = Array.map (fun s -> Re.mark (Re_pcre.re s)) [%e res] in
@@ -146,16 +157,10 @@ let transform_cases ~loc e cases =
         else
           [%e handle_cases (i + 1) (offG + nG) cases]]
   in
-  let pos = loc.loc_start in
-  let e0 = Exp.constant (Const.string pos.pos_fname) in
-  let e1 = Exp.constant (Const.int pos.pos_lnum) in
-  let e2 = Exp.constant (Const.int (pos.pos_cnum - pos.pos_bol)) in
   [%expr
-    let _g =
-      try Re.exec (fst [%e e_comp]) [%e e] with
-        Not_found -> raise (Match_failure ([%e e0], [%e e1], [%e e2]))
-    in
-    [%e handle_cases 0 0 cases]]
+    (match Re.exec_opt (fst [%e e_comp]) [%e e] with
+     | None -> [%e default_rhs]
+     | Some _g -> [%e handle_cases 0 0 cases])]
 
 let rewrite_expr mapper e_ext =
   (match e_ext.pexp_desc with
