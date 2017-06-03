@@ -15,8 +15,8 @@
  *)
 
 open Migrate_parsetree
-open Ast_404
-let ocaml_version = Versions.ocaml_404
+open Ast_402
+let ocaml_version = Versions.ocaml_402
 
 open Ast_mapper
 open Ast_helper
@@ -27,7 +27,7 @@ open Longident
 let error ~loc msg = raise (Location.Error (Location.error ~loc msg))
 
 let warn ~loc msg e =
-  let e_msg = Exp.constant (Const.string msg) in
+  let e_msg = Exp.constant (Const_string (msg, None)) in
   let structure = {pstr_desc = Pstr_eval (e_msg, []); pstr_loc = loc} in
   Exp.attr e ({txt = "ocaml.ppwarning"; loc}, PStr [structure])
 
@@ -108,12 +108,12 @@ let transform_cases ~loc e cases =
     if case.pc_guard <> None then
       error ~loc "Guards are not implemented for match%pcre." else
     (match case.pc_lhs with
-     | {ppat_desc = Ppat_constant (Pconst_string (re_src,_)); ppat_loc = loc} ->
+     | {ppat_desc = Ppat_constant (Const_string (re_src,_)); ppat_loc = loc} ->
         let re_str, bs, nG = extract_bindings ~loc re_src in
         (try ignore (Re_pcre.regexp re_str) with
          | Re_perl.Not_supported -> error ~loc "Unsupported regular expression."
          | Re_perl.Parse_error -> error ~loc "Invalid regular expression.");
-        (Exp.constant (Const.string re_str), nG, bs, case.pc_rhs)
+        (Exp.constant (Const_string (re_str, None)), nG, bs, case.pc_rhs)
      | {ppat_desc = Ppat_any} ->
         error ~loc "Universal wildcard must be the last pattern."
      | {ppat_loc = loc} ->
@@ -126,9 +126,9 @@ let transform_cases ~loc e cases =
      | cases ->
         let open Lexing in
         let pos = loc.Location.loc_start in
-        let e0 = Exp.constant (Const.string pos.pos_fname) in
-        let e1 = Exp.constant (Const.int pos.pos_lnum) in
-        let e2 = Exp.constant (Const.int (pos.pos_cnum - pos.pos_bol)) in
+        let e0 = Exp.constant (Const_string (pos.pos_fname, None)) in
+        let e1 = Exp.constant (Const_int pos.pos_lnum) in
+        let e2 = Exp.constant (Const_int (pos.pos_cnum - pos.pos_bol)) in
         let e = [%expr raise (Match_failure ([%e e0], [%e e1], [%e e2]))] in
         (cases, warn ~loc "A universal case is recommended for %pcre." e))
   in
@@ -148,7 +148,7 @@ let transform_cases ~loc e cases =
    | [] -> rhs
    | (varG, iG, mustG) :: bs ->
       let eG =
-        [%expr Re.Group.get _g [%e Exp.constant (Const.int (offG + iG + 1))]]
+        [%expr Re.Group.get _g [%e Exp.constant (Const_int (offG + iG + 1))]]
       in
       let eG =
         if mustG then eG else
@@ -161,7 +161,7 @@ let transform_cases ~loc e cases =
   let rec handle_cases i offG = function
    | [] -> [%expr assert false]
    | (_, nG, bs, rhs) :: cases ->
-      let e_i = Exp.constant (Const.int i) in
+      let e_i = Exp.constant (Const_int i) in
       [%expr
         if Re.Mark.test _g (snd [%e e_comp]).([%e e_i]) then
           [%e wrap_groups rhs offG bs]
