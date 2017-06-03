@@ -40,15 +40,19 @@ let fresh_var =
   let c = ref 0 in
   fun () -> incr c; Printf.sprintf "_ppx_regexp_%d" !c
 
+let rec is_zero p k =
+  (match p.[k] with
+   | '0' -> is_zero p (k + 1)
+   | '1'..'9' -> false
+   | _ -> true)
+
 let rec must_match p i =
   let l = String.length p in
   if i = l then true else
   if p.[i] = '?' || p.[i] = '*' then false else
   if p.[i] = '{' then
     let j = String.index_from p (i + 1) '}' in
-    (match String.split_on_char ',' (String.sub p (i + 1) (j - i - 1)) with
-     | k :: _ when int_of_string k = 0 -> false
-     | _ -> must_match p (j + 1))
+    not (is_zero p (i + 1)) && must_match p (j + 1)
   else
     true
 
