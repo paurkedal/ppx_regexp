@@ -26,6 +26,11 @@ open Longident
 
 let error ~loc msg = raise (Location.Error (Location.error ~loc msg))
 
+let warn ~loc msg e =
+  let e_msg = Exp.constant (Const.string msg) in
+  let structure = {pstr_desc = Pstr_eval (e_msg, []); pstr_loc = loc} in
+  Exp.attr e ({txt = "ocaml.ppwarning"; loc}, PStr [structure])
+
 let dyn_bindings = ref []
 let clear_bindings () = dyn_bindings := []
 let add_binding binding = dyn_bindings := binding :: !dyn_bindings
@@ -119,7 +124,8 @@ let transform_cases ~loc e cases =
         let e0 = Exp.constant (Const.string pos.pos_fname) in
         let e1 = Exp.constant (Const.int pos.pos_lnum) in
         let e2 = Exp.constant (Const.int (pos.pos_cnum - pos.pos_bol)) in
-        (cases, [%expr raise (Match_failure ([%e e0], [%e e1], [%e e2]))]))
+        let e = [%expr raise (Match_failure ([%e e0], [%e e1], [%e e2]))] in
+        (cases, warn ~loc "A universal case is recommended for %pcre." e))
   in
   let cases = List.rev_map aux cases in
   let res = Exp.array (List.map (fun (re, _, _, _) -> re) cases) in
