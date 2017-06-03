@@ -124,7 +124,8 @@ let transform_cases ~loc e cases =
      | {pc_lhs = {ppat_desc = Ppat_any}; pc_rhs} :: cases ->
         (cases, pc_rhs)
      | cases ->
-        let pos = loc.loc_start in
+        let open Lexing in
+        let pos = loc.Location.loc_start in
         let e0 = Exp.constant (Const.string pos.pos_fname) in
         let e1 = Exp.constant (Const.int pos.pos_lnum) in
         let e2 = Exp.constant (Const.int (pos.pos_cnum - pos.pos_bol)) in
