@@ -41,13 +41,25 @@ let () = Lwt_main.run begin
 end
 ```
 
-## Known Issues and Limitations
+## Limitations
 
-- The processor is currently new and not well tested.  Please break it and
-  file bug reports.
-- Pattern guards are not implemented.
-- Optional patterns due to `?`, `*`, and `{0,n}` are detected.  If you find
-  other reasons a `Re_pcre` pattern may opt, please file a bug report.
-- Is it feasible to cover any reasonable ground with exhaustiveness checks?
-  No attempt is currently made, and no warning is issued for a missing
-  catch-all case.
+### No Pattern Guards
+
+Pattern guards are not supported.  This is due to the fact that all match
+cases are combined into a single regular expression, so if one of the
+patterns succeed, the match is committed before we can check the guard
+condition.
+
+### No Exhaustiveness Check
+
+The syntax extension will always warn if no catch-all case is provided.  No
+exhaustiveness check is attempted.  Doing it right would require
+reimplementing full regular expression parsing, and presumably an algorithm
+which would produce a counter-example as expands the branches of the regular
+expression.
+
+## Bug Reports
+
+The processor is currently new and not well tested.  Please break it and
+file bug reports in the GitHub issue tracker.  Any exception raised by
+generated code except for `Match_failure` is a bug.
