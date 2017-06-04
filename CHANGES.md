@@ -6,4 +6,4 @@
 
 ## v0.2.0 - 2017-06-04
 
-- Initial release for ocaml 4.02.3.
+- Initial release for OCaml 4.02.3.
