@@ -108,20 +108,21 @@ let transform_cases ~loc e cases =
     if case.pc_guard <> None then
       error ~loc "Guards are not implemented for match%pcre." else
     (match case.pc_lhs with
-     | {ppat_desc = Ppat_constant (Pconst_string (re_src,_)); ppat_loc = loc} ->
+     | { ppat_desc = Ppat_constant (Pconst_string (re_src,_));
+         ppat_loc = loc; _ } ->
         let re_str, bs, nG = extract_bindings ~loc re_src in
         (try ignore (Re_pcre.regexp re_str) with
          | Re_perl.Not_supported -> error ~loc "Unsupported regular expression."
          | Re_perl.Parse_error -> error ~loc "Invalid regular expression.");
         (Exp.constant (Const.string re_str), nG, bs, case.pc_rhs)
-     | {ppat_desc = Ppat_any} ->
+     | {ppat_desc = Ppat_any; _} ->
         error ~loc "Universal wildcard must be the last pattern."
-     | {ppat_loc = loc} ->
+     | {ppat_loc = loc; _} ->
         error ~loc "Regular expression pattern should be a string.")
   in
   let cases, default_rhs =
     (match List.rev cases with
-     | {pc_lhs = {ppat_desc = Ppat_any}; pc_rhs} :: cases ->
+     | {pc_lhs = {ppat_desc = Ppat_any; _}; pc_rhs; _} :: cases ->
         (cases, pc_rhs)
      | cases ->
         let open Lexing in
@@ -175,7 +176,8 @@ let transform_cases ~loc e cases =
 
 let rewrite_expr mapper e_ext =
   (match e_ext.pexp_desc with
-   | Pexp_extension ({txt = "pcre"}, PStr [{pstr_desc = Pstr_eval (e, _)}]) ->
+   | Pexp_extension ({txt = "pcre"; _},
+                     PStr [{pstr_desc = Pstr_eval (e, _); _}]) ->
       let loc = e.pexp_loc in
       (match e.pexp_desc with
        | Pexp_match (e, cases) ->
@@ -186,7 +188,7 @@ let rewrite_expr mapper e_ext =
           error ~loc "[%pcre] only applies to match an function.")
    | _ -> default_mapper.expr mapper e_ext)
 
-let rewrite_structure mapper sis =
+let rewrite_structure _mapper sis =
   let sis' =
     default_mapper.structure {default_mapper with expr = rewrite_expr} sis
   in
