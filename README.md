@@ -54,9 +54,8 @@ condition.
 
 The syntax extension will always warn if no catch-all case is provided.  No
 exhaustiveness check is attempted.  Doing it right would require
-reimplementing full regular expression parsing, and an algorithm which would
-presumably produce a counter-example as expands the branches of the regular
-expression.
+reimplementing full regular expression parsing and an algorithm which would
+ideally produce a counter-example.
 
 ## Bug Reports
 
