@@ -11,11 +11,19 @@ match%pcre x with
 ```
 into suitable invocations of the
 [Re library](https://github.com/ocaml/ocaml-re).  The patterns are plain
-strings of the form accepted by `Re_pcre`, except groups can be bound to
-variables using the syntax `(?<var>...)`.  The type of `var` will be
-`string` if a match is of the groups is guaranteed given a match of the
-whole pattern, and `string option` if the variable is bound to or nested
-below an optionally matched group.
+strings of the form accepted by `Re_pcre`, with the following additions:
+
+  - `(?<var>...)` defines a group and binds whatever it matches as `var`.
+    The type of `var` will be `string` if the match is guaranteed given that
+    the whole pattern matches, and `string option` if the variable is bound
+    to or nested below an optionally matched group.
+
+  - `?<var>` at the start of a pattern binds group 0 as `var : string`.
+    This may not be the full string if the pattern is unanchored.
+
+A variable is allowed for the universal case and is bound to the matched
+string.  A regular alias is currently not allowed for patterns, since it is
+not obvious whether is should bind the full string or group 0.
 
 ## Example
 

@@ -89,7 +89,7 @@ let extract_bindings ~loc p =
         (match stack with
          | [] -> error ~loc "Unmached end of group."
          | ((Some varG, iG, bs') :: stack') ->
-            let bs = (varG, iG, true) :: bs in
+            let bs = (varG, Some iG, true) :: bs in
             (bs, bs', stack')
          | ((None, _, bs') :: stack') ->
             (bs, bs', stack'))
@@ -100,21 +100,41 @@ let extract_bindings ~loc p =
       in
       parse_normal nG stack' (List.rev_append bs bs') i
   in
-  let bs, nG = parse_normal 0 [] [] 0 in
-  (Buffer.contents buf, bs, nG)
+  let parse_first () =
+    if l >= 4 && p.[0] = '?' && p.[1] = '<' then
+      let j = String.index_from p 2 '>' in
+      let varG = String.sub p 2 (j - 2) in
+      parse_normal 0 [] [varG, None, true] (j + 1)
+    else
+      parse_normal 0 [] [] 0
+  in
+  let bs, nG = parse_first () in
+  let re_str = Buffer.contents buf in
+  (try ignore (Re_pcre.regexp re_str) with
+   | Re_perl.Not_supported -> error ~loc "Unsupported regular expression."
+   | Re_perl.Parse_error -> error ~loc "Invalid regular expression.");
+  (Exp.constant (Const.string re_str), bs, nG)
 
-let transform_cases ~loc e cases =
+let transform_cases ~loc cases =
   let aux case =
     if case.pc_guard <> None then
       error ~loc "Guards are not implemented for match%pcre." else
     (match case.pc_lhs with
      | { ppat_desc = Ppat_constant (Pconst_string (re_src,_));
          ppat_loc = loc; _ } ->
-        let re_str, bs, nG = extract_bindings ~loc re_src in
-        (try ignore (Re_pcre.regexp re_str) with
-         | Re_perl.Not_supported -> error ~loc "Unsupported regular expression."
-         | Re_perl.Parse_error -> error ~loc "Invalid regular expression.");
-        (Exp.constant (Const.string re_str), nG, bs, case.pc_rhs)
+        let re, bs, nG = extract_bindings ~loc re_src in
+        (re, nG, bs, case.pc_rhs)
+(*
+     | {ppat_desc = Ppat_alias
+         ({ ppat_desc = Ppat_constant (Pconst_string (re_src,_));
+            ppat_loc = loc; _ },
+          var); _} ->
+        let re, bs, nG = extract_bindings ~loc re_src in
+        let rhs =
+          (* TODO: Should this be (_ppx_regexp_v or Re.Group.get _g 0? *)
+          [%expr let [%p Pat.var var] = _ppx_regexp_v in [%e case.pc_rhs]] in
+        (re, nG, bs, rhs)
+*)
      | {ppat_desc = Ppat_any; _} ->
         error ~loc "Universal wildcard must be the last pattern."
      | {ppat_loc = loc; _} ->
@@ -122,8 +142,11 @@ let transform_cases ~loc e cases =
   in
   let cases, default_rhs =
     (match List.rev cases with
-     | {pc_lhs = {ppat_desc = Ppat_any; _}; pc_rhs; _} :: cases ->
+     | {pc_lhs = {ppat_desc = Ppat_any; _}; pc_rhs; pc_guard = None} :: cases ->
         (cases, pc_rhs)
+     | {pc_lhs = {ppat_desc = Ppat_var var; _}; pc_rhs; pc_guard = None} ::
+       cases ->
+        (cases, [%expr let [%p Pat.var var] = _ppx_regexp_v in [%e pc_rhs]])
      | cases ->
         let open Lexing in
         let pos = loc.Location.loc_start in
@@ -148,8 +171,11 @@ let transform_cases ~loc e cases =
   let rec wrap_groups rhs offG = function
    | [] -> rhs
    | (varG, iG, mustG) :: bs ->
-      let eG =
-        [%expr Re.Group.get _g [%e Exp.constant (Const.int (offG + iG + 1))]]
+      let eG = match iG with
+       | None ->
+          [%expr Re.Group.get _g 0]
+       | Some iG ->
+          [%expr Re.Group.get _g [%e Exp.constant (Const.int (offG + iG + 1))]]
       in
       let eG =
         if mustG then eG else
@@ -170,7 +196,7 @@ let transform_cases ~loc e cases =
           [%e handle_cases (i + 1) (offG + nG) cases]]
   in
   [%expr
-    (match Re.exec_opt (fst [%e e_comp]) [%e e] with
+    (match Re.exec_opt (fst [%e e_comp]) _ppx_regexp_v with
      | None -> [%e default_rhs]
      | Some _g -> [%e handle_cases 0 0 cases])]
 
@@ -181,9 +207,9 @@ let rewrite_expr mapper e_ext =
       let loc = e.pexp_loc in
       (match e.pexp_desc with
        | Pexp_match (e, cases) ->
-          transform_cases ~loc e cases
+          [%expr let _ppx_regexp_v = [%e e] in [%e transform_cases ~loc cases]]
        | Pexp_function (cases) ->
-          [%expr fun _s -> [%e transform_cases ~loc [%expr _s] cases]]
+          [%expr fun _ppx_regexp_v -> [%e transform_cases ~loc cases]]
        | _ ->
           error ~loc "[%pcre] only applies to match an function.")
    | _ -> default_mapper.expr mapper e_ext)

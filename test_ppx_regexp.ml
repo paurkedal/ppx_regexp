@@ -44,6 +44,15 @@ let rec test2 s =
    | {|^[^{}]*\{(?<s'>.*)\}|} -> test2 s'
    | _ -> assert false)
 
+let test3 s =
+  (match%pcre s with
+   | {|no(is)((e)) (?<is>is) (g(oo)d)|} -> assert (is = "is")
+   | {|?<s'>&()[a-zA-Z0-9_-]+(;)|} ->
+      let i, j = String.index s '&', String.rindex s ';' in
+      assert (s' = String.sub s i (j - i + 1))
+   | {|m(o+)re re(gular)? no(is)e, (no )*be(t+)?er|} -> ()
+   | s' -> assert (s = s'))
+
 let () =
   test2 "<>";
   test2 "<a>";
@@ -53,7 +62,9 @@ let () =
   test2 "a;";
   test2 "a;b;c;d;";
   test2 "<a;b>";
-  test2 "Xx{--{a;b;c;}--}yY."
+  test2 "Xx{--{a;b;c;}--}yY.";
+  test3 "- + &nbsp; + -";
+  test3 "catch-all"
 
 (* It should work in a functor, and Re_pcre.regxp should be lifted to the
  * top-level. *)
@@ -67,6 +78,6 @@ end
 (* It should work as a top-level eval. *)
 let r = ref false
 ;;(match%pcre "" with
-   | "$^" -> r := true
+   | {|^$|} -> r := true
    | _ -> assert false)
 ;;assert (!r = true)
