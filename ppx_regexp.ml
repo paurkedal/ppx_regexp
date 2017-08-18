@@ -222,11 +222,17 @@ let rewrite_structure _mapper sis =
    | [] -> sis'
    | bindings ->
       clear_bindings ();
-      let si' = {
-        pstr_desc = Pstr_value (Nonrecursive, bindings);
-        pstr_loc = Location.none;
-      } in
-      si' :: sis')
+      let local_sis =
+        [%str
+          module Ppx_regexp__local = struct
+            [%%s [{
+              pstr_desc = Pstr_value (Nonrecursive, bindings);
+              pstr_loc = Location.none;
+            }]]
+          end
+          open Ppx_regexp__local]
+      in
+      local_sis @ sis')
 
 let () = Driver.register ~name:"ppx_regexp" ocaml_version
   (fun _config _cookies -> {default_mapper with structure = rewrite_structure})
