@@ -14,6 +14,12 @@
  * along with this library.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
+let () =
+  (match%pcre "%" with _ -> ());
+  (match%pcre "%" with s -> assert (s = "%"));
+  (function%pcre _ -> ()) "%";
+  (function%pcre s -> assert (s = "%")) "%"
+
 let test1 =
   (function%pcre
    | {|^(?<k>.*): *(?<v>.+)?$|} -> `Attr (k, v)
