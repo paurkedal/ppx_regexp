@@ -115,6 +115,23 @@ let extract_bindings ~loc p =
    | Re_perl.Parse_error -> error ~loc "Invalid regular expression.");
   (Exp.constant (Const.string re_str), bs, nG)
 
+let rec wrap_group_bindings ~loc rhs offG = function
+ | [] -> rhs
+ | (varG, iG, mustG) :: bs ->
+    let eG = match iG with
+     | None ->
+        [%expr Re.Group.get _g 0]
+     | Some iG ->
+        [%expr Re.Group.get _g [%e Exp.constant (Const.int (offG + iG + 1))]]
+    in
+    let eG =
+      if mustG then eG else
+      [%expr try Some [%e eG] with Not_found -> None]
+    in
+    [%expr
+      let [%p Pat.var {txt = varG; loc}] = [%e eG] in
+      [%e wrap_group_bindings ~loc rhs offG bs]]
+
 let transform_cases ~loc cases =
   let aux case =
     if case.pc_guard <> None then
@@ -168,30 +185,13 @@ let transform_cases ~loc cases =
   add_binding (Vb.mk (Pat.var {txt = var; loc}) comp);
   let e_comp = Exp.ident {txt = Lident var; loc} in
 
-  let rec wrap_groups rhs offG = function
-   | [] -> rhs
-   | (varG, iG, mustG) :: bs ->
-      let eG = match iG with
-       | None ->
-          [%expr Re.Group.get _g 0]
-       | Some iG ->
-          [%expr Re.Group.get _g [%e Exp.constant (Const.int (offG + iG + 1))]]
-      in
-      let eG =
-        if mustG then eG else
-        [%expr try Some [%e eG] with Not_found -> None]
-      in
-      [%expr
-        let [%p Pat.var {txt = varG; loc}] = [%e eG] in
-        [%e wrap_groups rhs offG bs]]
-  in
   let rec handle_cases i offG = function
    | [] -> [%expr assert false]
    | (_, nG, bs, rhs) :: cases ->
       let e_i = Exp.constant (Const.int i) in
       [%expr
         if Re.Mark.test _g (snd [%e e_comp]).([%e e_i]) then
-          [%e wrap_groups rhs offG bs]
+          [%e wrap_group_bindings ~loc rhs offG bs]
         else
           [%e handle_cases (i + 1) (offG + nG) cases]]
   in
