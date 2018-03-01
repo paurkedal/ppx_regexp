@@ -110,9 +110,9 @@ let extract_bindings ~loc p =
   in
   let bs, nG = parse_first () in
   let re_str = Buffer.contents buf in
-  (try ignore (Re_pcre.regexp re_str) with
-   | Re_perl.Not_supported -> error ~loc "Unsupported regular expression."
-   | Re_perl.Parse_error -> error ~loc "Invalid regular expression.");
+  (try ignore Re.Perl.(compile (re re_str)) with
+   | Re.Perl.Not_supported -> error ~loc "Unsupported regular expression."
+   | Re.Perl.Parse_error -> error ~loc "Invalid regular expression.");
   (Exp.constant (Const.string re_str), bs, nG)
 
 let rec wrap_group_bindings ~loc rhs offG = function
@@ -176,7 +176,7 @@ let transform_cases ~loc cases =
   let cases = List.rev_map aux cases in
   let res = Exp.array (List.map (fun (re, _, _, _) -> re) cases) in
   let comp = [%expr
-    let a = Array.map (fun s -> Re.mark (Re_pcre.re s)) [%e res] in
+    let a = Array.map (fun s -> Re.mark (Re.Perl.re s)) [%e res] in
     let marks = Array.map fst a in
     let re = Re.compile (Re.alt (Array.to_list (Array.map snd a))) in
     (re, marks)
