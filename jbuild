@@ -4,10 +4,10 @@
  ((name ppx_regexp)
   (public_name ppx_regexp)
   (kind ppx_rewriter)
-  (modules (ppx_regexp regexp))
+  (modules (ppx_regexp regexp regexp_tyre))
   (preprocess (pps (ppx_tools_versioned.metaquot_404)))
-  (libraries (re re.perl ocaml-migrate-parsetree))
-  (ppx_runtime_libraries (re re.perl))))
+  (libraries (re re.perl tyre ocaml-migrate-parsetree ppx_tools_versioned))
+  (ppx_runtime_libraries (re re.perl tyre))))
 
 (executables
  ((names (test_ppx_regexp))
