@@ -46,6 +46,11 @@ let simplify_seq es =
    | [e] -> e
    | es -> Seq es)
 
+let simplify_alt es =
+  (match es with
+   | [e] -> e
+   | es -> Alt es)
+
 let parse s =
   let l = String.length s in
   let get i = if i = l then ')' else s.[i] in
@@ -78,8 +83,8 @@ let parse s =
      | Re.Perl.Parse_error -> fail i msg
   in
   let rec scan_str i j =
-    (match if j = l then ')' else s.[j] with
-     | '[' | '?' | '*' | '+' | '{' | '(' | ')' | '\\' ->
+    (match get j with
+     | '[' | '?' | '*' | '+' | '{' | '(' | ')' | '|' | '\\' ->
         (j, Re (Re.str (String.sub s i (j - i))))
      | _ -> scan_str i (j + 1))
   in
@@ -126,8 +131,15 @@ let parse s =
 
   (* Sequences and Groups *)
   let
-    rec scan_seq i acc =
+    rec scan_alt i acc =
+      let j, e = scan_seq i [] in
+      (match get j with
+       | ')' -> (j, simplify_alt (List.rev (e :: acc)))
+       | '|' -> scan_alt (j + 1) (e :: acc)
+       | _ -> assert false)
+    and scan_seq i acc =
       (match get i with
+       | ')' | '|' -> (i, simplify_seq (List.rev acc))
        | '[' ->
           let j, e = scan_cset i (i + 1) in
           scan_seq j (e :: acc)
@@ -142,9 +154,6 @@ let parse s =
           let j, e = scan_group (i + 1) in
           if j = l || s.[j] <> ')' then fail i "Unbalanced '('." else
           scan_seq (j + 1) (e :: acc)
-       | ')' ->
-          let e = match acc with [e] -> e | _ -> simplify_seq (List.rev acc) in
-          (i, e)
        | '^' -> scan_seq (i + 1) (Re Re.bos :: acc)
        | '$' -> scan_seq (i + 1) (Re Re.eos :: acc)
        | '\\' ->
@@ -164,23 +173,23 @@ let parse s =
            | '<' ->
               let j, idr = scan_ident (i + 2) (i + 2) in
               if get j <> '>' then fail i "Unbalanced '<'." else
-              let j, e = scan_seq (j + 1) [] in
+              let j, e = scan_alt (j + 1) [] in
               (j, Capture_as (idr, e))
            | ':' ->
-              let j, e = scan_seq (i + 2) [] in (j, e)
+              let j, e = scan_alt (i + 2) [] in (j, e)
            | _ ->
               fail (i + 1) "Invalid group modifier.")
        | '+' ->
-          let j, e = scan_seq (i + 1) [] in (j, Capture e)
+          let j, e = scan_alt (i + 1) [] in (j, Capture e)
        | '*' | '{' ->
           fail i "Invalid operator at start of group."
        | _ ->
-          scan_seq i [])
+          scan_alt i [])
   in
 
   (* Top-Level *)
   try
-    let j, e = scan_seq 0 [] in
+    let j, e = scan_alt 0 [] in
     if j <> l then fail j "Unbalanced ')'." else
     Ok e
   with Parse_error error ->
