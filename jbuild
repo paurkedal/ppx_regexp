@@ -8,14 +8,3 @@
   (preprocess (pps (ppx_tools_versioned.metaquot_404)))
   (libraries (re re.perl tyre ocaml-migrate-parsetree ppx_tools_versioned))
   (ppx_runtime_libraries (re re.perl tyre))))
-
-(executables
- ((names (test_ppx_regexp))
-  (modules (test_ppx_regexp))
-  (libraries (re re.perl))
-  (preprocess (pps (ppx_regexp)))))
-
-(alias
- ((name runtest)
-  (deps (test_ppx_regexp.exe))
-  (action (run ${<}))))
