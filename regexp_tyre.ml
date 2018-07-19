@@ -29,8 +29,7 @@ let fresh_var =
 
 module Tyre = struct
 
-  let mk ~loc s =
-    A.Exp.ident ~loc @@ Loc.mkloc Longident.(Ldot (Lident "Tyre", s)) loc
+  let mk ~loc s = AC.evar ~loc ("Tyre."^s)
 
   let mkf ~loc s l =
     A.Exp.apply ~loc (mk ~loc s) l
@@ -41,6 +40,83 @@ module Tyre = struct
   let bin ~loc s a b = mkf ~loc s [Nolabel, a ; Nolabel, b]
 
 end
+
+(** Utilities for captures *)
+
+type ('a, 'b) capture =
+   | No
+   | Named of 'a
+   | Unnamed of 'b
+
+let rec capture =
+  let open Regexp in function
+  | Re _ -> No
+  | Seq l ->
+    if List.for_all (fun x -> capture x = No) l then
+      No
+    else
+      Unnamed ()
+  | Alt l ->
+    if List.exists (fun x -> capture x = No) l then
+      No
+    else
+      Unnamed ()
+  | Opt t -> capture t 
+  | Repeat (_,_,t) -> capture t
+  | Capture _ -> Unnamed ()
+  | Capture_as (s,_) -> Named s
+  | Call _ -> Unnamed ()
+
+let capture_singleton = function
+  | No -> No
+  | Unnamed () -> Unnamed 1
+  | Named s -> Named [s]
+
+(** Simplification of regexps *)
+
+let flatten_seq =
+  let rec f = function
+    | Regexp.Seq l -> flatten l
+    | x -> [x]
+  and flatten l = List.flatten @@ List.map f l
+  in
+  flatten
+
+let extract_re_list l =
+  if List.for_all (function Regexp.Re _ -> true | _ -> false) l then
+    Some (List.map (function Regexp.Re r -> r | _ -> assert false) l)
+  else
+    None
+
+let rec collapse_ungrouped t = match t with
+  | Regexp.Re _ -> t
+  | Call _ -> t
+  | Capture t -> Capture (collapse_ungrouped t)
+  | Capture_as (s, t) -> Capture_as (s, collapse_ungrouped t)
+  | Seq l ->
+    let l = flatten_seq @@ List.map collapse_ungrouped l in
+    begin match extract_re_list l with
+      | Some r -> Re (Re.seq r)
+      | None -> Seq l
+    end
+  | Alt l ->
+    let l = List.map collapse_ungrouped l in
+    begin match extract_re_list l with
+      | Some r -> Re (Re.alt r)
+      | None -> Alt l
+    end
+  | Opt t ->
+    begin match collapse_ungrouped t with
+      | Re r -> Re (Re.opt r)
+      | t -> Opt t
+    end 
+  | Repeat (i, j, t) -> 
+    begin match collapse_ungrouped t with
+      | Re r -> Re (Re.repn r i j)
+      | t -> Repeat (i, j, t)
+    end 
+
+let simplify = collapse_ungrouped
 
 (** Converters to/from nested tuples *)
 
@@ -114,59 +190,29 @@ let make_conv_tuple ~loc n tyre_expr =
 
 (** Sequences *)
 
-let flatten_seq =
-  let rec f = function
-    | Regexp.Seq l -> flatten l
-    | x -> [x]
-  and flatten l = List.flatten @@ List.map f l
-  in
-  flatten
+let rec seq_to_expr ~loc = function
+  | [] -> assert false
+  | [ capture, e ] -> capture_singleton capture, e
+  | (capture, e) :: exprs ->
+    let captures, exprs = seq_to_expr ~loc exprs in
+    let captures, (<&>) = match capture, captures with
+      | c, No -> capture_singleton c, Tyre.bin ~loc "suffix"
+      | No, c -> c, Tyre.bin ~loc "prefix"
+      | Unnamed (), Unnamed i -> Unnamed (i+1), Tyre.bin ~loc "seq"
+      | Named s, Named l -> Named (s :: l), Tyre.bin ~loc "seq"
+      | Unnamed _, Named _ | Named _, Unnamed _ ->
+        Loc.raise_errorf ~loc
+          "The same sequence must not mix unnamed and named capture groups@."
+    in
+    captures, e <&> exprs
 
-type ('a, 'b) capture =
-   | No
-   | Named of 'a
-   | Unnamed of 'b
-let rec capture =
-  let open Regexp in function
-  | Re _ -> No
-  | Seq l ->
-    if List.for_all (fun x -> capture x = No) l then
-      No
-    else
-      Unnamed ()
-  | Alt l ->
-    if List.exists (fun x -> capture x = No) l then
-      No
-    else
-      Unnamed ()
-  | Opt t -> capture t 
-  | Repeat (_,_,t) -> capture t
-  | Capture _ -> Unnamed ()
-  | Capture_as (s,_) -> Named s
-  | Call _ -> Unnamed ()
-let capture_singleton = function
-  | No -> No
-  | Unnamed () -> Unnamed 1
-  | Named s -> Named [s]
-
-let seq_to_expr ~loc l =
-  let rec f = function
-    | [] -> assert false
-    | [ capture, e ] -> capture_singleton capture, e
-    | (capture, e) :: exprs ->
-       let captures, exprs = f exprs in
-      let captures, (<&>) = match capture, captures with
-        | c, No -> capture_singleton c, Tyre.bin ~loc "suffix"
-        | No, c -> c, Tyre.bin ~loc "prefix"
-        | Unnamed (), Unnamed i -> Unnamed (i+1), Tyre.bin ~loc "seq"
-        | Named s, Named l -> Named (s :: l), Tyre.bin ~loc "seq"
-        | Unnamed _, Named _ | Named _, Unnamed _ -> assert false
-      in
-      captures, e <&> exprs
-  in
-  let seq_capture, seq_expr = f l in
+let seq_to_conv ~loc l =
+  let seq_capture, seq_expr = seq_to_expr ~loc l in
   match seq_capture with
-  | No -> failwith "Meh."
+  | No ->
+    (* This case should not happen: If simplification was run, 
+       sequence of ungrouped regex would have been collapsed. *)
+    assert false
   | Unnamed i -> make_conv_tuple ~loc i seq_expr
   | Named l -> make_conv_object ~loc l seq_expr
 
@@ -177,11 +223,12 @@ let rec expr_of_regex ~loc t =
   | Regexp.Re _ -> failwith "TODO"
   | Seq l ->
     let seq_item re = capture re, expr_of_regex ~loc re in
-    seq_to_expr ~loc @@ List.map seq_item l
+    seq_to_conv ~loc @@ List.map seq_item l
   | Alt _ -> failwith "TODO"
   | Opt t ->
     Tyre.mkf ~loc "opt" [Nolabel, expr_of_regex ~loc t]
   | Repeat (0, None, t) -> Tyre.mkf ~loc "rep" [Nolabel, expr_of_regex ~loc t]
+  | Repeat (1, None, t) -> Tyre.mkf ~loc "rep1" [Nolabel, expr_of_regex ~loc t]
   | Repeat (_,_,_) -> failwith "TODO"
   | Capture t -> expr_of_regex ~loc t
   | Capture_as (_, t) -> expr_of_regex ~loc t
