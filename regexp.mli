@@ -22,7 +22,7 @@ type t =
   | Repeat of int * int option * t
   | Capture of t
   | Capture_as of string * t
-  | Call of Longident.t
+  | Call of Longident.t Location.loc
 
 type error = {pos: int; msg: string}
 

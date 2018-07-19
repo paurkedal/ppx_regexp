@@ -22,7 +22,7 @@ type t =
   | Repeat of int * int option * t
   | Capture of t
   | Capture_as of string * t
-  | Call of Longident.t
+  | Call of Longident.t Location.loc
   (* TODO: | Case_sense of t | Case_blind of t *)
 
 type error = {pos: int; msg: string}
@@ -160,7 +160,7 @@ let parse s =
           (match s.[i + 1] with
            | '&' ->
               let j, idr = scan_longident (i + 2) in
-              (j, Call idr)
+              (j, Call (Location.mknoloc idr))
            | '<' ->
               let j, idr = scan_ident (i + 2) (i + 2) in
               if get j <> '>' then fail i "Unbalanced '<'." else
