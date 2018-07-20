@@ -14,14 +14,14 @@
  * along with this library.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
-type t =
-  | Re of Re.t
-  | Seq of t list
-  | Alt of t list
-  | Opt of t
-  | Repeat of int * int option * t
-  | Capture of t
-  | Capture_as of string * t
+type 'a t =
+  | Re of 'a
+  | Seq of 'a t list
+  | Alt of 'a t list
+  | Opt of 'a t
+  | Repeat of int * int option * 'a t
+  | Capture of 'a t
+  | Capture_as of string * 'a t
   | Call of Longident.t Location.loc
   (* TODO: | Case_sense of t | Case_blind of t *)
 
