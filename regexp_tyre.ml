@@ -33,7 +33,7 @@ module Tyre = struct
 
   let mkf ~loc s l =
     A.Exp.apply ~loc (mk ~loc s) l
-  
+
   let conv ~loc to_ from_ t =
     mkf ~loc "conv" [Nolabel, to_ ; Nolabel, from_ ; Nolabel, t]
 
@@ -61,7 +61,7 @@ let rec capture =
       No
     else
       Unnamed ()
-  | Opt t -> capture t 
+  | Opt t -> capture t
   | Repeat (_,_,t) -> capture t
   | Capture _ -> Unnamed ()
   | Capture_as (s,_) -> Named s
@@ -109,12 +109,12 @@ let rec collapse_ungrouped t = match t with
     begin match collapse_ungrouped t with
       | Re r -> Re (Re.opt r)
       | t -> Opt t
-    end 
-  | Repeat (i, j, t) -> 
+    end
+  | Repeat (i, j, t) ->
     begin match collapse_ungrouped t with
       | Re r -> Re (Re.repn r i j)
       | t -> Repeat (i, j, t)
-    end 
+    end
 
 let simplify = collapse_ungrouped
 
@@ -124,7 +124,7 @@ let rec make_nested_tuple_pat ~loc n =
   let v = fresh_var () in
   if n = 1 then
     [v], AC.pvar ~loc v
-  else 
+  else
     let vars, pat = make_nested_tuple_pat ~loc (n-1) in
     (v :: vars), A.Pat.tuple ~loc [AC.pvar ~loc v;pat]
 let rec make_nested_tuple_expr ~loc exprs =
@@ -149,8 +149,8 @@ let make_object_expr ~loc expr meths =
   in
   A.Exp.object_ ~loc (A.Cstr.mk (A.Pat.any ~loc ()) @@ f expr meths)
 
-let make_conv_of_nested_tuple ~loc ~make_pat ~make_expr ~n tyre_expr = 
-  let fun_to = 
+let make_conv_of_nested_tuple ~loc ~make_pat ~make_expr ~n tyre_expr =
+  let fun_to =
     let vars, tuple_pat = make_nested_tuple_pat ~loc n in
     let lids = List.map (AC.evar ~loc) vars in
     let expr = make_expr ~loc lids in
@@ -165,7 +165,7 @@ let make_conv_of_nested_tuple ~loc ~make_pat ~make_expr ~n tyre_expr =
 
 let make_conv_object ~loc meths tyre_expr =
   let n = List.length meths in
-  let make_expr ~loc lids = 
+  let make_expr ~loc lids =
     make_object_expr ~loc lids meths
   in
   let make_pat ~loc () =
@@ -210,7 +210,7 @@ let seq_to_conv ~loc l =
   let seq_capture, seq_expr = seq_to_expr ~loc l in
   match seq_capture with
   | No ->
-    (* This case should not happen: If simplification was run, 
+    (* This case should not happen: If simplification was run,
        sequence of ungrouped regex would have been collapsed. *)
     assert false
   | Unnamed i -> make_conv_tuple ~loc i seq_expr
