@@ -48,8 +48,9 @@ type ('a, 'b) capture =
    | Named of 'a
    | Unnamed of 'b
 
-let rec capture =
-  let open Regexp in function
+let rec capture e =
+  let open Regexp in
+  match e.Loc.txt with
   | Re _ -> No
   | Seq l ->
     if List.for_all (fun x -> capture x = No) l then
@@ -62,9 +63,9 @@ let rec capture =
     else
       Unnamed ()
   | Opt t -> capture t
-  | Repeat (_,_,t) -> capture t
+  | Repeat (_,t) -> capture t
   | Capture _ -> Unnamed ()
-  | Capture_as (s,_) -> Named s
+  | Capture_as (s,_) -> Named s.Loc.txt
   | Call _ -> Unnamed ()
 
 let capture_singleton = function
@@ -75,46 +76,52 @@ let capture_singleton = function
 (** Simplification of regexps *)
 
 let flatten_seq =
-  let rec f = function
+  let rec f e =
+    match e.Loc.txt with
     | Regexp.Seq l -> flatten l
-    | x -> [x]
+    | _ -> [e]
   and flatten l = List.flatten @@ List.map f l
   in
   flatten
 
 let extract_re_list l =
-  if List.for_all (function Regexp.Re _ -> true | _ -> false) l then
-    Some (List.map (function Regexp.Re r -> r | _ -> assert false) l)
-  else
-    None
+  let is_re = function {Loc.txt = Regexp.Re _; _} -> true | _ -> false in
+  let get_re = function {Loc.txt = Regexp.Re r; _} -> r | _ -> assert false in
+  if List.for_all is_re l then Some (List.map get_re l) else None
 
-let rec collapse_ungrouped t = match t with
+let rec collapse_ungrouped (t : Re.t Regexp.t) : Re.t Regexp.t = match t.Loc.txt with
   | Regexp.Re _ -> t
   | Call _ -> t
-  | Capture t -> Capture (collapse_ungrouped t)
-  | Capture_as (s, t) -> Capture_as (s, collapse_ungrouped t)
+  | Capture t ->
+    Loc.mkloc (Regexp.Capture (collapse_ungrouped t)) t.Loc.loc
+  | Capture_as (s, t) ->
+    Loc.mkloc (Regexp.Capture_as (s, collapse_ungrouped t)) t.Loc.loc
   | Seq l ->
     let l = flatten_seq @@ List.map collapse_ungrouped l in
-    begin match extract_re_list l with
-      | Some r -> Re (Re.seq r)
-      | None -> Seq l
-    end
+    let e = match extract_re_list l with
+      | Some r -> Regexp.Re (Re.seq r)
+      | None -> Regexp.Seq l
+    in
+    Loc.mkloc e t.Loc.loc
   | Alt l ->
     let l = List.map collapse_ungrouped l in
-    begin match extract_re_list l with
-      | Some r -> Re (Re.alt r)
-      | None -> Alt l
-    end
+    let e = match extract_re_list l with
+      | Some r -> Regexp.Re (Re.alt r)
+      | None -> Regexp.Alt l
+    in
+    Loc.mkloc e t.Loc.loc
   | Opt t ->
-    begin match collapse_ungrouped t with
-      | Re r -> Re (Re.opt r)
+    let e = match collapse_ungrouped t with
+      | {Loc.txt = Regexp.Re r; _} -> Regexp.Re (Re.opt r)
       | t -> Opt t
-    end
-  | Repeat (i, j, t) ->
-    begin match collapse_ungrouped t with
-      | Re r -> Re (Re.repn r i j)
-      | t -> Repeat (i, j, t)
-    end
+    in
+    Loc.mkloc e t.Loc.loc
+  | Repeat ({Loc.txt = (i, j); _} as ij, t) ->
+    let e = match collapse_ungrouped t with
+      | {Loc.txt = Regexp.Re r; _} -> Regexp.Re (Re.repn r i j)
+      | t -> Repeat (ij, t)
+    in
+    Loc.mkloc e t.Loc.loc
 
 let simplify = collapse_ungrouped
 
@@ -218,18 +225,21 @@ let seq_to_conv ~loc l =
 
 (** Put everything together *)
 
-let rec expr_of_regex ~loc t =
-  match t with
+let rec expr_of_regex (t : _ Regexp.t) =
+  let loc = t.Loc.loc in
+  match t.Loc.txt with
   | Regexp.Re _ -> failwith "TODO"
   | Seq l ->
-    let seq_item re = capture re, expr_of_regex ~loc re in
+    let seq_item re = capture re, expr_of_regex re in
     seq_to_conv ~loc @@ List.map seq_item l
   | Alt _ -> failwith "TODO"
   | Opt t ->
-    Tyre.mkf ~loc "opt" [Nolabel, expr_of_regex ~loc t]
-  | Repeat (0, None, t) -> Tyre.mkf ~loc "rep" [Nolabel, expr_of_regex ~loc t]
-  | Repeat (1, None, t) -> Tyre.mkf ~loc "rep1" [Nolabel, expr_of_regex ~loc t]
-  | Repeat (_,_,_) -> failwith "TODO"
-  | Capture t -> expr_of_regex ~loc t
-  | Capture_as (_, t) -> expr_of_regex ~loc t
+    Tyre.mkf ~loc "opt" [Nolabel, expr_of_regex t]
+  | Repeat ({Loc.txt = (0, None); _}, t) ->
+    Tyre.mkf ~loc "rep" [Nolabel, expr_of_regex t]
+  | Repeat ({Loc.txt = (1, None); _}, t) ->
+    Tyre.mkf ~loc "rep1" [Nolabel, expr_of_regex t]
+  | Repeat (_,_) -> failwith "TODO"
+  | Capture t -> expr_of_regex t
+  | Capture_as (_, t) -> expr_of_regex t
   | Call lid -> A.Exp.ident lid
