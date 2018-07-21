@@ -28,11 +28,9 @@ and 'a node =
   | Call of Longident.t Location.loc
   (* TODO: | Case_sense of t | Case_blind of t *)
 
-type error = {pos: int; msg: string}
+type error = {loc: Location.t; msg: string}
 
 exception Parse_error of error
-
-let fail pos msg = raise (Parse_error {pos; msg})
 
 let nonepsilon = function {Location.txt = Seq []; _} -> false | _ -> true
 
@@ -80,16 +78,18 @@ let parse ?(pos = Lexing.dummy_pos) s =
   let wrap_loc (i, j) x = Location.{txt = x; loc = make_loc (i, j)} in
   let with_loc f i = let j, e = f i in j, wrap_loc (i, j) e in
 
+  let fail (i, j) msg = raise (Parse_error {loc = make_loc (i, j); msg}) in
+
   (* Identifiers *)
   let rec scan_ident i j =
-    if j = l then fail i "Unterminated named capture." else
+    if j = l then fail (i, j) "Unterminated named capture." else
     (match s.[j] with
      | 'A'..'Z' | '0'..'9' when i = j ->
-        fail i "Invalid identifier first char."
+        fail (i, j + 1) "Invalid identifier first char."
      | 'A'..'Z' | '0'..'9' | 'a'..'z' | '_' ->
         scan_ident i (j + 1)
      | _ when i = j ->
-        fail i "Missing identifier."
+        fail (i, i) "Missing identifier."
      | _ ->
         (j, wrap_loc (i, j) (String.sub s i (j - i))))
   in
@@ -105,7 +105,7 @@ let parse ?(pos = Lexing.dummy_pos) s =
   (* Non-Nested Parts as Re.t *)
   let scan_re ~msg i j =
     try (j, wrap_loc (i, j) (Re (Re.Perl.re (String.sub s i (j - i))))) with
-     | Re.Perl.Parse_error -> fail i msg
+     | Re.Perl.Parse_error -> fail (i, j) msg
   in
   let rec scan_str i j =
     (match get j with
@@ -114,19 +114,19 @@ let parse ?(pos = Lexing.dummy_pos) s =
      | _ -> scan_str i (j + 1))
   in
   let scan_escape i =
-    if i + 1 = l then fail i "Escape at end of regular expression." else
+    if i + 1 = l then fail (i, i+1) "Escape at end of regular expression." else
     (match s.[i + 1] with
      | 'a'..'z' | 'A'..'Z' ->
         scan_re ~msg:"Invalid escape instruction." i (i + 2)
      | ch -> (i + 2, wrap_loc (i, i + 2) (Re (Re.char ch))))
   in
   let rec scan_cset i j =
-    if j = l then fail j "Unbalanced '['." else
+    if j = l then fail (i, i + 1) "Unbalanced '['." else
     (match s.[j] with
      | '\\' -> scan_cset i (j + 2)
      | '[' ->
         (match String.index_from_opt s (j + 1) ']' with
-         | None -> fail j "Unbalanced '[' in character set."
+         | None -> fail (j + 1, j + 2) "Unbalanced '[' in character set."
          | Some k -> scan_cset i (k + 1))
      | ']' -> scan_re ~msg:"Invalid character set." i (j + 1)
      | _ -> scan_cset i (j + 1))
@@ -154,8 +154,8 @@ let parse ?(pos = Lexing.dummy_pos) s =
         (j, n_min, (Some n_min)))
   in
   let rep_hd i j n_min n_max = function
-   | [] -> fail i "Operator must follow an operand."
-   | {Location.txt = Repeat _; _} :: _ -> fail i "Nested repetition."
+   | [] -> fail (i, j) "Operator must follow an operand."
+   | {Location.txt = Repeat _; _} :: _ -> fail (i, j) "Nested repetition."
    | e :: es ->
       let loc = Location.{
         loc_start = e.loc.loc_start;
@@ -165,9 +165,9 @@ let parse ?(pos = Lexing.dummy_pos) s =
       mkloc (Repeat (wrap_loc (i, j) (n_min, n_max), e)) loc :: es
   in
   let opt_hd i = function
-   | [] -> fail i "Operator must follow an operand."
+   | [] -> fail (i, i + 1) "Operator must follow an operand."
    | {Location.txt = Repeat _; _} :: _->
-      fail i "Greedyness modifier not implemented."
+      fail (i, i + 1) "Greedyness modifier not implemented."
    | e :: es ->
       let loc = Location.{
         loc_start = e.loc.loc_start;
@@ -203,11 +203,11 @@ let parse ?(pos = Lexing.dummy_pos) s =
        | '+' -> scan_seq_item (i + 1) (rep_hd i (i + 1) 1 None acc)
        | '{' ->
           let j, n_min, n_max = scan_range (i + 1) in
-          if j = l || s.[j] <> '}' then fail i "Unbalanced '{'." else
+          if j = l || s.[j] <> '}' then fail (i, i + 1) "Unbalanced '{'." else
           scan_seq_item j (rep_hd i (j + 1) n_min n_max acc)
        | '(' ->
           let j, e = scan_group (i + 1) in
-          if j = l || s.[j] <> ')' then fail i "Unbalanced '('." else
+          if j = l || s.[j] <> ')' then fail (i, i + 1) "Unbalanced '('." else
           scan_seq_item (j + 1) (wrap_loc (i, j + 1) e :: acc)
        | '^' -> scan_seq_item (i + 1) (wrap_loc (i, i + 1) (Re Re.bos) :: acc)
        | '$' -> scan_seq_item (i + 1) (wrap_loc (i, i + 1) (Re Re.eos) :: acc)
@@ -221,29 +221,29 @@ let parse ?(pos = Lexing.dummy_pos) s =
     and scan_group i =
       (match get i with
        | '?' ->
-          if i + 1 = l then fail (i - 1) "Unbalanced '('." else
+          if i + 1 = l then fail (i - 1, i) "Unbalanced '('." else
           (match s.[i + 1] with
            | '&' ->
               let j, idr = with_loc scan_longident (i + 2) in
               (j, Call idr)
            | '<' ->
               let j, idr = scan_ident (i + 2) (i + 2) in
-              if get j <> '>' then fail i "Unbalanced '<'." else
+              if get j <> '>' then fail (i, i + 1) "Unbalanced '<'." else
               let k, e = with_loc scan_alt (j + 1) in
               (k, Capture_as (idr, e))
            | ':' ->
               scan_alt (i + 2)
            | _ ->
-              fail (i + 1) "Invalid group modifier.")
+              fail (i, i + 2) "Invalid group modifier.")
        | '+' -> let j, e = with_loc scan_alt (i + 1) in (j, Capture e)
-       | '*' | '{' -> fail i "Invalid operator at start of group."
+       | '*' | '{' -> fail (i, i + 1) "Invalid group modifier."
        | _ -> scan_alt i)
   in
 
   (* Top-Level *)
   try
     let j, e = with_loc scan_alt 0 in
-    if j <> l then fail j "Unbalanced ')'." else
+    if j <> l then fail (j, j + 1) "Unbalanced ')'." else
     Ok e
   with Parse_error error ->
     Error error

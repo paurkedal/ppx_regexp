@@ -26,6 +26,6 @@ and 'a node =
   | Call of Longident.t Location.loc
   (* TODO: | Case_sense of t | Case_blind of t *)
 
-type error = {pos: int; msg: string}
+type error = {loc: Location.t; msg: string}
 
 val parse : ?pos: Lexing.position -> string -> (Re.t t, error) result
