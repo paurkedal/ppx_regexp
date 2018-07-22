@@ -97,7 +97,7 @@ let parse ?(pos = Lexing.dummy_pos) s =
     let rec loop j =
       (match get j with
        | 'A'..'Z' | 'a'..'z' | '0'..'9' | '_' | '.' -> loop (j + 1)
-       | _ -> (j, Longident.parse (String.sub s i j)))
+       | _ -> (j, Longident.parse (String.sub s i (j - i))))
     in
     loop i (* TODO: Which exception to catch? *)
   in
