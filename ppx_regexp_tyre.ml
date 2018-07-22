@@ -80,7 +80,7 @@ let rec capture e =
   | Opt t -> capture t
   | Repeat (_,t) -> capture t
   | Capture _ -> Unnamed ()
-  | Capture_as (s,_) -> Named s.Loc.txt
+  | Capture_as (s,_) -> Named s
   | Call _ -> Unnamed ()
 
 let capture_singleton = function
@@ -185,7 +185,7 @@ let make_object_expr ~loc expr meths =
     | expr :: exprs, meth :: meths ->
       let decls = f exprs meths in
       let decl =
-        A.Cf.method_ ~loc (Loc.mkloc meth loc)
+        A.Cf.method_ ~loc meth
           Public
           (Cfk_concrete (Fresh, expr))
       in
@@ -217,7 +217,7 @@ let make_conv_object ~loc meths tyre_expr =
     let obj_var = fresh_var () in
     let obj = AC.evar ~loc obj_var in
     let obj_pat = AC.pvar ~loc obj_var in
-    let methsends = List.map (fun m -> A.Exp.send ~loc obj m) meths in
+    let methsends = List.map (fun m -> A.Exp.send ~loc obj m.Loc.txt) meths in
     obj_pat, methsends
   in
   make_conv_of_nested_tuple ~loc ~n ~make_expr ~make_pat tyre_expr
@@ -279,18 +279,22 @@ let make_conv_sum ~loc captures tyre_expr =
     | No ->
       Loc.raise_errorf ~loc
         "All alternatives branches must have a capturing group."
-    | Unnamed _ -> "Alt"^string_of_int i
+    | Unnamed _ -> Location.mkloc ("Alt"^string_of_int i) loc
     | Named s -> s
   in
   let branchnames = List.mapi name_from_capture captures in
   let id = fresh_var () in
   let fun_to =
-    let expr_branchs = List.map (epoly ~loc) branchnames in
+    let expr_branchs =
+      List.map (fun {Loc.loc;txt} -> epoly ~loc txt) branchnames
+    in
     let expr =  make_match_from_nested ~loc expr_branchs (AC.evar ~loc id) in
     A.Exp.fun_ ~loc Nolabel None (AC.pvar ~loc id) expr
   in
   let fun_from =
-    let pat_branchs = List.map (ppoly ~loc) branchnames in 
+    let pat_branchs =
+      List.map (fun {Loc.loc;txt} -> ppoly ~loc txt) branchnames
+    in 
     let expr =  make_match_to_nested ~loc pat_branchs (AC.evar ~loc id) in
     A.Exp.fun_ ~loc Nolabel None (AC.pvar ~loc id) expr
   in
@@ -394,7 +398,9 @@ let rec regexp_of_pattern pat =
   in
   Loc.mkloc re loc
 
-let expr_of_pattern pat = expr_of_regex @@ simplify @@ regexp_of_pattern pat
+let expr_of_pattern pat =
+  let re = simplify @@ regexp_of_pattern pat in
+  capture re, expr_of_regex @@ re
 
 let expr_of_function ~loc l =
   let err_on_guard = function
@@ -405,8 +411,14 @@ let expr_of_function ~loc l =
   in  
   let route_of_case {Parsetree. pc_rhs ; pc_guard ; pc_lhs } =
     err_on_guard pc_guard;
-    let re = expr_of_pattern pc_lhs in
-    let e = AC.func ~loc [AC.pvar "result", pc_rhs] in
+    let loc = pc_lhs.ppat_loc in
+    let capture, re = expr_of_pattern pc_lhs in
+    let arg = match capture with
+      | No -> A.Pat.any ~loc ()
+      | Named {loc; txt} -> AC.pvar ~loc txt
+      | Unnamed () -> A.Pat.any ~loc ()
+    in
+    let e = AC.func ~loc [arg, pc_rhs] in
     AC.constr ~loc "Tyre.Route" [re; e]
   in
   let l = List.map route_of_case l in
