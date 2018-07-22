@@ -1,10 +1,15 @@
 (jbuild_version 1)
 
+(executable
+ ((name main)
+  (modules Main)
+  (libraries (ppx_regexp.pcre ppx_regexp.tyre ocaml-migrate-parsetree))))
+
 (executables
  ((names (test_ppx_regexp))
   (modules (test_ppx_regexp))
   (libraries (re re.perl))
-  (preprocess (pps (ppx_regexp)))))
+  (preprocess (pps (ppx_regexp.pcre)))))
 
 (alias
  ((name runtest)
