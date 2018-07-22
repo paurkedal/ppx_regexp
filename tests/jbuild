@@ -1,0 +1,12 @@
+(jbuild_version 1)
+
+(executables
+ ((names (test_ppx_regexp))
+  (modules (test_ppx_regexp))
+  (libraries (re re.perl))
+  (preprocess (pps (ppx_regexp)))))
+
+(alias
+ ((name runtest)
+  (deps (test_ppx_regexp.exe))
+  (action (run ${<}))))
