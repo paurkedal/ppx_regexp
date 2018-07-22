@@ -23,6 +23,8 @@ module AC = Ast_convenience_404
 module A = Ast_helper
 module Loc = Location
 
+let internal_error ~loc = Loc.raise_errorf ~loc "Internal error@."
+
 let fresh_var =
   let c = ref 0 in
   fun () -> incr c; Printf.sprintf "_ppx_regexp_%d" !c
@@ -79,7 +81,7 @@ let rec capture e =
   | Repeat (_,t) -> capture t
   | Capture _ -> Unnamed ()
   | Capture_as (s,_) -> Named s.Loc.txt
-  | Call _ -> No
+  | Call _ -> Unnamed ()
 
 let capture_singleton = function
   | No -> No
@@ -106,34 +108,34 @@ let flatten_alt =
   in
   flatten
 
-let extract_re_list l =
+let extract_re_list ~loc l =
   let is_re = function {Loc.txt = Regexp.Code _; _} -> true | _ -> false in
-  let get = function {Loc.txt = Regexp.Code r; _} -> r | _ -> assert false in
+  let get = function {Loc.txt = Regexp.Code r; _} -> r | _ -> internal_error ~loc in
   if List.for_all is_re l then Some (List.map get l) else None
 
 let rec collapse_ungrouped (t : string Regexp.t) =
   let loc = t.Loc.loc in
   match t.Loc.txt with
   | Regexp.Code e ->
-    let f = AC.evar ~loc "Re_perl.re" in
+    let f = AC.evar ~loc "Re.Perl.re" in
     let s = A.Exp.constant ~loc (A.Const.string e) in
     Loc.mkloc (Regexp.Code (A.Exp.apply ~loc f [Nolabel, s])) loc
   | Call lid ->
-    Loc.mkloc (Regexp.Code (A.Exp.ident ~loc lid)) loc
+    Loc.mkloc (Regexp.Call lid) loc
   | Capture t ->
     Loc.mkloc (Regexp.Capture (collapse_ungrouped t)) t.Loc.loc
   | Capture_as (s, t) ->
     Loc.mkloc (Regexp.Capture_as (s, collapse_ungrouped t)) t.Loc.loc
   | Seq l ->
     let l = flatten_seq @@ List.map collapse_ungrouped l in
-    let e = match extract_re_list l with
+    let e = match extract_re_list ~loc l with
       | Some r -> Regexp.Code (Re.mkfl "seq" ~loc r)
       | None -> Regexp.Seq l
     in
     Loc.mkloc e t.Loc.loc
   | Alt l ->
     let l = flatten_alt @@ List.map collapse_ungrouped l in
-    let e = match extract_re_list l with
+    let e = match extract_re_list ~loc l with
       | Some r -> Regexp.Code (Re.mkfl "alt" ~loc r)
       | None -> Regexp.Alt l
     in
@@ -172,7 +174,7 @@ let rec make_nested_tuple_pat ~loc n =
     (v :: vars), A.Pat.tuple ~loc [AC.pvar ~loc v;pat]
 let rec make_nested_tuple_expr ~loc exprs =
   match exprs with
-  | [] -> assert false
+  | [] -> internal_error ~loc
   | [e] -> e
   | e :: exprs ->
     let tuples = make_nested_tuple_expr ~loc exprs in
@@ -188,7 +190,7 @@ let make_object_expr ~loc expr meths =
           (Cfk_concrete (Fresh, expr))
       in
       decl :: decls
-    | _, _ -> assert false
+    | _, _ -> internal_error ~loc
   in
   A.Exp.object_ ~loc (A.Cstr.mk (A.Pat.any ~loc ()) @@ f expr meths)
 
@@ -243,7 +245,7 @@ let pright = ppoly "Right"
 
 let rec make_match_from_nested ~loc mk_exprs matched =
   match mk_exprs with
-  | [] -> assert false
+  | [] -> internal_error ~loc
   | [ mk_expr ] -> mk_expr matched
   | mk_expr :: mk_exprs ->
     let left_id = fresh_var () in
@@ -255,13 +257,13 @@ let rec make_match_from_nested ~loc mk_exprs matched =
       ])
 
 let make_match_to_nested ~loc mk_pats matched =
-  let lenght = List.length mk_pats in
+  let length = List.length mk_pats in
   let make_nested_either_constr ~loc n expr =
     let rec nested_rights ~loc n expr =
       if n = 0 then expr
       else eright ~loc (nested_rights ~loc (n-1) expr)
     in
-    if n = lenght then nested_rights ~loc n expr
+    if n = length - 1 then nested_rights ~loc n expr
     else nested_rights ~loc n (eleft ~loc expr)
   in
   let make_case n mk_pat =
@@ -277,7 +279,7 @@ let make_conv_sum ~loc captures tyre_expr =
     | No ->
       Loc.raise_errorf ~loc
         "All alternatives branches must have a capturing group."
-    | Unnamed _ -> "Call"^string_of_int i
+    | Unnamed _ -> "Alt"^string_of_int i
     | Named s -> s
   in
   let branchnames = List.mapi name_from_capture captures in
@@ -297,7 +299,7 @@ let make_conv_sum ~loc captures tyre_expr =
 (** Alternatives *)
 
 let rec alt_to_expr ~loc = function
-  | [] -> assert false
+  | [] -> internal_error ~loc
   | [ e ] -> e
   | (e) :: exprs ->
     let exprs = alt_to_expr ~loc exprs in
@@ -310,7 +312,7 @@ let alt_to_conv ~loc captures exprs =
 (** Sequences *)
 
 let rec seq_to_expr ~loc = function
-  | [] -> assert false
+  | [] -> internal_error ~loc
   | [ capture, e ] -> capture_singleton capture, e
   | (capture, e) :: exprs ->
     let captures, exprs = seq_to_expr ~loc exprs in
@@ -331,7 +333,11 @@ let seq_to_conv ~loc l =
   | No ->
     (* This case should not happen: If simplification was run,
        sequence of ungrouped regex would have been collapsed. *)
-    assert false
+    internal_error ~loc
+  | Unnamed 0 | Named [] ->
+    internal_error ~loc (* No. *)
+  | Unnamed 1 | Named [_] ->
+    seq_expr
   | Unnamed i -> make_conv_tuple ~loc i seq_expr
   | Named l -> make_conv_object ~loc l seq_expr
 
