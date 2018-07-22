@@ -68,10 +68,13 @@ let rec capture e =
   match e.Loc.txt with
   | Code _ -> No
   | Seq l ->
-    if List.for_all (fun x -> capture x = No) l then
-      No
-    else
-      Unnamed ()
+    let cs = List.map capture l in
+    let l = List.filter (function No -> false | _ -> true) cs in
+    begin match l with
+      | [] -> No
+      | [ c ] -> c
+      | _ -> Unnamed ()
+    end
   | Alt l ->
     if List.exists (fun x -> capture x = No) l then
       No
