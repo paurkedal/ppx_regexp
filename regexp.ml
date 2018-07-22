@@ -100,12 +100,6 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
 
   (* Non-Nested Parts *)
   let re_perl (i, j) = wrap_loc (i, j) (Code (String.sub s i (j - i))) in
-  let rec scan_str i j =
-    (match get j with
-     | '[' | '?' | '*' | '+' | '{' | '(' | ')' | '|' | '\\' ->
-        (j, re_perl (i, j))
-     | _ -> scan_str i (j + 1))
-  in
   let scan_escape i =
     if i + 1 = l then fail (i, i+1) "Escape at end of regular expression." else
     (match s.[i + 1] with
@@ -147,8 +141,7 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
   in
   let rep_hd i j n_min n_max = function
    | [] -> fail (i, j) "Operator must follow an operand."
-   | {Location.txt = Repeat _; _} :: _ -> fail (i, j) "Nested repetition."
-   | e :: es ->
+   | (e : _ Location.loc) :: es ->
       let loc = Location.{
         loc_start = e.loc.loc_start;
         loc_end = position_of_index j;
@@ -158,9 +151,7 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
   in
   let opt_hd i = function
    | [] -> fail (i, i + 1) "Operator must follow an operand."
-   | {Location.txt = Repeat _; _} :: _->
-      fail (i, i + 1) "Greedyness modifier not implemented."
-   | e :: es ->
+   | (e : _ Location.loc) :: es ->
       let loc = Location.{
         loc_start = e.loc.loc_start;
         loc_end = position_of_index (i + 1);
@@ -190,13 +181,17 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
        | '[' ->
           let j, e = scan_cset i (i + 1) in
           scan_seq_item j (e :: acc)
+       | ('?' | '*' | '+') when get (i + 1) = '?' ->
+          fail (i, i + 1) "Greedyness modifier not implemented."
+        (* TODO: Reject nested cases which require paretheses in PCRE.
+         * TODO: Reject repetition of ε and zero-width assertions. *)
        | '?' -> scan_seq_item (i + 1) (opt_hd i acc)
        | '*' -> scan_seq_item (i + 1) (rep_hd i (i + 1) 0 None acc)
        | '+' -> scan_seq_item (i + 1) (rep_hd i (i + 1) 1 None acc)
        | '{' ->
           let j, n_min, n_max = scan_range (i + 1) in
           if j = l || s.[j] <> '}' then fail (i, i + 1) "Unbalanced '{'." else
-          scan_seq_item j (rep_hd i (j + 1) n_min n_max acc)
+          scan_seq_item (j + 1) (rep_hd i (j + 1) n_min n_max acc)
        | '(' ->
           let j, e = scan_group (i + 1) in
           if j = l || s.[j] <> ')' then fail (i, i + 1) "Unbalanced '('." else
@@ -206,9 +201,7 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
        | '\\' ->
           let j, e = scan_escape i in
           scan_seq_item j (e :: acc)
-       | _ ->
-          let j, e = scan_str i i in
-          scan_seq_item j (e :: acc))
+       | _ -> scan_seq_item (i + 1) (re_perl (i, i + 1) :: acc))
 
     and scan_group i =
       (match get i with
