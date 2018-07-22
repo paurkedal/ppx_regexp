@@ -336,7 +336,7 @@ let seq_to_conv ~loc l =
     internal_error ~loc
   | Unnamed 0 | Named [] ->
     internal_error ~loc (* No. *)
-  | Unnamed 1 | Named [_] ->
+  | Unnamed 1 | Unnamed 2 | Named [_] ->
     seq_expr
   | Unnamed i -> make_conv_tuple ~loc i seq_expr
   | Named l -> make_conv_object ~loc l seq_expr
