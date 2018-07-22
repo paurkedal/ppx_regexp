@@ -367,10 +367,7 @@ let rec expr_of_regex (t : _ Regexp.t) =
   | Call lid -> A.Exp.ident lid
 
 let expr_of_string ~pos s =
-  match Regexp.parse ~pos s with
-  | Ok re -> expr_of_regex @@ simplify re
-  | Error { loc; msg } ->
-    Loc.raise_errorf ~loc "%s@." msg
+  expr_of_regex @@ simplify @@ Regexp.parse_exn ~pos s
 
 open Ast_mapper
 
