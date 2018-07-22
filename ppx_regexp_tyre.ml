@@ -356,3 +356,36 @@ let rec expr_of_regex (t : _ Regexp.t) =
   | Capture t -> expr_of_regex t
   | Capture_as (_, t) -> expr_of_regex t
   | Call lid -> A.Exp.ident lid
+
+let expr_of_string ~pos s =
+  match Regexp.parse ~pos s with
+  | Ok re -> expr_of_regex @@ simplify re
+  | Error { loc; msg } ->
+    Loc.raise_errorf ~loc "%s@." msg
+
+open Ast_mapper
+
+let adjust_position ~loc delim =
+  let (+~) pos i = Lexing.{pos with pos_cnum = pos.pos_cnum + i } in
+  match delim with
+  | None -> loc.Loc.loc_start +~ 1
+  | Some s -> loc.Loc.loc_start +~ (String.length s + 2)
+
+let expr mapper e_ext =
+  let open Parsetree in
+  match e_ext.pexp_desc with
+  | Pexp_extension ({txt = "tyre"; _},
+                    PStr [{pstr_desc = Pstr_eval (e, _); _}]) ->
+    let loc = e.pexp_loc in
+    (match e.pexp_desc with
+     | Pexp_constant (Pconst_string (s, delim)) ->
+       let pos = adjust_position ~loc delim in
+       expr_of_string ~pos s
+     | _ ->
+       Loc.raise_errorf ~loc "[%%tyre] is only allowed on constant strings and match expressions.")
+  | _ -> default_mapper.expr mapper e_ext
+
+let () =
+  Driver.register
+    ~name:"ppx_regexp.tyre" ocaml_version
+    (fun _config _cookies -> {default_mapper with expr})
