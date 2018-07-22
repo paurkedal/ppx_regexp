@@ -28,10 +28,6 @@ and 'a node =
   | Call of Longident.t Location.loc
   (* TODO: | Case_sense of t | Case_blind of t *)
 
-type error = {loc: Location.t; msg: string}
-
-exception Parse_error of error
-
 let nonepsilon = function {Location.txt = Seq []; _} -> false | _ -> true
 
 let simplify_seq ~loc es =
@@ -46,7 +42,7 @@ let simplify_alt es =
 
 module Int_map = Map.Make (struct type t = int let compare = compare end)
 
-let parse ?(pos = Lexing.dummy_pos) s =
+let parse_exn ?(pos = Lexing.dummy_pos) s =
   let l = String.length s in
   let get i = if i = l then ')' else s.[i] in
 
@@ -78,7 +74,7 @@ let parse ?(pos = Lexing.dummy_pos) s =
   let wrap_loc (i, j) x = Location.{txt = x; loc = make_loc (i, j)} in
   let with_loc f i = let j, e = f i in j, wrap_loc (i, j) e in
 
-  let fail (i, j) msg = raise (Parse_error {loc = make_loc (i, j); msg}) in
+  let fail (i, j) msg = Location.raise_errorf ~loc:(make_loc (i, j)) "%s" msg in
 
   (* Identifiers *)
   let rec scan_ident i j =
@@ -237,9 +233,8 @@ let parse ?(pos = Lexing.dummy_pos) s =
   in
 
   (* Top-Level *)
-  try
-    let j, e = with_loc scan_alt 0 in
-    if j <> l then fail (j, j + 1) "Unbalanced ')'." else
-    Ok e
-  with Parse_error error ->
-    Error error
+  let j, e = with_loc scan_alt 0 in
+  if j <> l then fail (j, j + 1) "Unbalanced ')'." else e
+
+let parse ?pos s =
+  try Ok (parse_exn ?pos s) with Location.Error error -> Error error
