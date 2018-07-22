@@ -80,14 +80,10 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
   let rec scan_ident i j =
     if j = l then fail (i, j) "Unterminated named capture." else
     (match s.[j] with
-     | 'A'..'Z' | '0'..'9' when i = j ->
-        fail (i, j + 1) "Invalid identifier first char."
-     | 'A'..'Z' | '0'..'9' | 'a'..'z' | '_' ->
-        scan_ident i (j + 1)
-     | _ when i = j ->
-        fail (i, i) "Missing identifier."
-     | _ ->
-        (j, wrap_loc (i, j) (String.sub s i (j - i))))
+     | '0'..'9' when i = j -> fail (i, j + 1) "Invalid identifier first char."
+     | 'A'..'Z' | '0'..'9' | 'a'..'z' | '_' -> scan_ident i (j + 1)
+     | _ when i = j -> fail (i, i) "Missing identifier."
+     | _ -> (j, wrap_loc (i, j) (String.sub s i (j - i))))
   in
   let scan_longident i =
     let rec loop j =
