@@ -361,21 +361,58 @@ let rec expr_of_regex (t : _ Regexp.t) =
     Tyre.mkf ~loc "rep" [Nolabel, expr_of_regex t]
   | Repeat ({Loc.txt = (1, None); _}, t) ->
     Tyre.mkf ~loc "rep1" [Nolabel, expr_of_regex t]
-  | Repeat (_,_) -> failwith "TODO"
+  | Repeat ({loc},_) -> Loc.raise_errorf ~loc "Repetitions other than + and * are not implemented."
   | Capture t -> expr_of_regex t
   | Capture_as (_, t) -> expr_of_regex t
   | Call lid -> A.Exp.ident lid
 
-let expr_of_string ~pos s =
-  expr_of_regex @@ simplify @@ Regexp.parse_exn ~pos s
-
-open Ast_mapper
 
 let adjust_position ~loc delim =
   let (+~) pos i = Lexing.{pos with pos_cnum = pos.pos_cnum + i } in
   match delim with
   | None -> loc.Loc.loc_start +~ 1
   | Some s -> loc.Loc.loc_start +~ (String.length s + 2)
+let expr_of_string ~loc s delim =
+  let pos = adjust_position loc delim in
+  expr_of_regex @@ simplify @@ Regexp.parse_exn ~pos s
+
+
+let rec regexp_of_pattern pat =
+  let open Parsetree in
+  let loc = pat.ppat_loc in
+  let re = match pat.ppat_desc with
+    | Ppat_constant (Pconst_string (s, delim)) ->
+      let pos = adjust_position loc delim in
+      Regexp.(Capture (parse_exn ~pos s))
+    | Ppat_alias (pat, s) ->
+      Regexp.(Capture_as (s, regexp_of_pattern pat))
+    | Ppat_or (pat1, pat2) ->
+      Regexp.(Alt [ regexp_of_pattern pat1 ; regexp_of_pattern pat2 ])
+    | _ ->
+      Loc.raise_errorf ~loc
+        "This pattern is not a valid tyre pattern."
+  in
+  Loc.mkloc re loc
+
+let expr_of_pattern pat = expr_of_regex @@ simplify @@ regexp_of_pattern pat
+
+let expr_of_function ~loc l =
+  let err_on_guard = function
+    | None -> ()
+    | Some e ->
+      Loc.raise_errorf ~loc:e.Parsetree.pexp_loc
+        "Tyre patterns can not have guards."
+  in  
+  let route_of_case {Parsetree. pc_rhs ; pc_guard ; pc_lhs } =
+    err_on_guard pc_guard;
+    let re = expr_of_pattern pc_lhs in
+    let e = AC.func ~loc [AC.pvar "result", pc_rhs] in
+    AC.constr ~loc "Tyre.Route" [re; e]
+  in
+  let l = List.map route_of_case l in
+  Tyre.mkf ~loc "route" [Nolabel, AC.list ~loc l]
+
+open Ast_mapper
 
 let expr mapper e_ext =
   let open Parsetree in
@@ -385,10 +422,11 @@ let expr mapper e_ext =
     let loc = e.pexp_loc in
     (match e.pexp_desc with
      | Pexp_constant (Pconst_string (s, delim)) ->
-       let pos = adjust_position ~loc delim in
-       expr_of_string ~pos s
+       expr_of_string ~loc s delim
+     | Pexp_function l ->
+       expr_of_function ~loc l
      | _ ->
-       Loc.raise_errorf ~loc "[%%tyre] is only allowed on constant strings and match expressions.")
+       Loc.raise_errorf ~loc "[%%tyre] is only allowed on constant strings and functions.")
   | _ -> default_mapper.expr mapper e_ext
 
 let () =
