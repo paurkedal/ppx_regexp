@@ -39,7 +39,7 @@ module Tyre = struct
   let conv ~loc to_ from_ t =
     mkf ~loc "conv" [Nolabel, to_ ; Nolabel, from_ ; Nolabel, t]
 
-  let bin ~loc s a b = mkf ~loc s [Nolabel, a ; Nolabel, b]
+  let bin ~loc s a b = mkf ~loc s [Nolabel, a; Nolabel, b]
 
 end
 
@@ -49,6 +49,8 @@ module Re = struct
 
   let mkf ~loc s l =
     A.Exp.apply ~loc (mk ~loc s) l
+      
+  let mkfl ~loc s l = mkf ~loc s [Nolabel, AC.list ~loc l]
 
 end
 
@@ -125,14 +127,14 @@ let rec collapse_ungrouped (t : string Regexp.t) =
   | Seq l ->
     let l = flatten_seq @@ List.map collapse_ungrouped l in
     let e = match extract_re_list l with
-      | Some r -> Regexp.Code (Re.mkf "seq" ~loc (List.map nolabel r))
+      | Some r -> Regexp.Code (Re.mkfl "seq" ~loc r)
       | None -> Regexp.Seq l
     in
     Loc.mkloc e t.Loc.loc
   | Alt l ->
     let l = flatten_alt @@ List.map collapse_ungrouped l in
     let e = match extract_re_list l with
-      | Some r -> Regexp.Code (Re.mkf "alt" ~loc (List.map nolabel r))
+      | Some r -> Regexp.Code (Re.mkfl "alt" ~loc r)
       | None -> Regexp.Alt l
     in
     Loc.mkloc e t.Loc.loc
@@ -338,7 +340,8 @@ let seq_to_conv ~loc l =
 let rec expr_of_regex (t : _ Regexp.t) =
   let loc = t.Loc.loc in
   match t.Loc.txt with
-  | Regexp.Code r -> r
+  | Regexp.Code r ->
+    Tyre.mkf ~loc "regex" [nolabel r]
   | Seq l ->
     let seq_item re = capture re, expr_of_regex re in
     seq_to_conv ~loc @@ List.map seq_item l
