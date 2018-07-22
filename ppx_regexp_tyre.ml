@@ -77,7 +77,7 @@ let rec capture e =
   | Repeat (_,t) -> capture t
   | Capture _ -> Unnamed ()
   | Capture_as (s,_) -> Named s.Loc.txt
-  | Call _ -> Unnamed ()
+  | Call _ -> No
 
 let capture_singleton = function
   | No -> No
@@ -90,6 +90,15 @@ let flatten_seq =
   let rec f e =
     match e.Loc.txt with
     | Regexp.Seq l -> flatten l
+    | _ -> [e]
+  and flatten l = List.flatten @@ List.map f l
+  in
+  flatten
+
+let flatten_alt =
+  let rec f e =
+    match e.Loc.txt with
+    | Regexp.Alt l -> flatten l
     | _ -> [e]
   and flatten l = List.flatten @@ List.map f l
   in
@@ -121,7 +130,7 @@ let rec collapse_ungrouped (t : string Regexp.t) =
     in
     Loc.mkloc e t.Loc.loc
   | Alt l ->
-    let l = List.map collapse_ungrouped l in
+    let l = flatten_alt @@ List.map collapse_ungrouped l in
     let e = match extract_re_list l with
       | Some r -> Regexp.Code (Re.mkf "alt" ~loc (List.map nolabel r))
       | None -> Regexp.Alt l
@@ -220,6 +229,82 @@ let make_conv_tuple ~loc n tyre_expr =
   in
   make_conv_of_nested_tuple ~loc ~n ~make_expr ~make_pat tyre_expr
 
+(** Converters to/from nested either types *)
+
+let ppoly s ~loc x = A.Pat.(variant ~loc s (Some x))
+let epoly s ~loc x = A.Exp.(variant ~loc s (Some x))
+
+let eleft = epoly "Left"
+let eright = epoly "Right"
+let pleft = ppoly "Left"
+let pright = ppoly "Right"
+
+let rec make_match_from_nested ~loc mk_exprs matched =
+  match mk_exprs with
+  | [] -> assert false
+  | [ mk_expr ] -> mk_expr matched
+  | mk_expr :: mk_exprs ->
+    let left_id = fresh_var () in
+    let right_id = fresh_var () in
+    let right_expr = make_match_from_nested ~loc mk_exprs (AC.evar right_id) in
+    A.Exp.(match_ ~loc matched [
+        case (pleft ~loc @@ AC.pvar left_id) (mk_expr @@ AC.evar ~loc left_id) ;
+        case (pright ~loc @@ AC.pvar right_id) right_expr ;
+      ])
+
+let make_match_to_nested ~loc mk_pats matched =
+  let lenght = List.length mk_pats in
+  let make_nested_either_constr ~loc n expr =
+    let rec nested_rights ~loc n expr =
+      if n = 0 then expr
+      else eright ~loc (nested_rights ~loc (n-1) expr)
+    in
+    if n = lenght then nested_rights ~loc n expr
+    else nested_rights ~loc n (eleft ~loc expr)
+  in
+  let make_case n mk_pat =
+    let id = fresh_var () in
+    A.Exp.case
+      (mk_pat @@ AC.pvar ~loc id)
+      (make_nested_either_constr ~loc n @@ AC.evar ~loc id)
+  in
+  A.Exp.match_ ~loc matched @@ List.mapi make_case mk_pats 
+
+let make_conv_sum ~loc captures tyre_expr =
+  let name_from_capture i = function 
+    | No ->
+      Loc.raise_errorf ~loc
+        "All alternatives branches must have a capturing group."
+    | Unnamed _ -> "Call"^string_of_int i
+    | Named s -> s
+  in
+  let branchnames = List.mapi name_from_capture captures in
+  let id = fresh_var () in
+  let fun_to =
+    let expr_branchs = List.map (epoly ~loc) branchnames in
+    let expr =  make_match_from_nested ~loc expr_branchs (AC.evar ~loc id) in
+    A.Exp.fun_ ~loc Nolabel None (AC.pvar ~loc id) expr
+  in
+  let fun_from =
+    let pat_branchs = List.map (ppoly ~loc) branchnames in 
+    let expr =  make_match_to_nested ~loc pat_branchs (AC.evar ~loc id) in
+    A.Exp.fun_ ~loc Nolabel None (AC.pvar ~loc id) expr
+  in
+  Tyre.conv ~loc fun_to fun_from tyre_expr
+  
+(** Alternatives *)
+
+let rec alt_to_expr ~loc = function
+  | [] -> assert false
+  | [ e ] -> e
+  | (e) :: exprs ->
+    let exprs = alt_to_expr ~loc exprs in
+    Tyre.bin ~loc "alt" e exprs
+
+let alt_to_conv ~loc captures exprs =
+  let alt_expr = alt_to_expr ~loc exprs in
+  make_conv_sum ~loc captures alt_expr
+
 (** Sequences *)
 
 let rec seq_to_expr ~loc = function
@@ -257,7 +342,10 @@ let rec expr_of_regex (t : _ Regexp.t) =
   | Seq l ->
     let seq_item re = capture re, expr_of_regex re in
     seq_to_conv ~loc @@ List.map seq_item l
-  | Alt _ -> failwith "TODO"
+  | Alt l ->
+    let exprs = List.map expr_of_regex l in
+    let captures = List.map capture l in
+    alt_to_conv ~loc captures exprs
   | Opt t ->
     Tyre.mkf ~loc "opt" [Nolabel, expr_of_regex t]
   | Repeat ({Loc.txt = (0, None); _}, t) ->
