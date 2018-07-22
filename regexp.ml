@@ -18,7 +18,7 @@ let mkloc = Location.mkloc
 
 type 'a t = 'a node Location.loc
 and 'a node =
-  | Re of 'a
+  | Code of 'a
   | Seq of 'a t list
   | Alt of 'a t list
   | Opt of 'a t
@@ -102,23 +102,19 @@ let parse ?(pos = Lexing.dummy_pos) s =
     loop i (* TODO: Which exception to catch? *)
   in
 
-  (* Non-Nested Parts as Re.t *)
-  let scan_re ~msg i j =
-    try (j, wrap_loc (i, j) (Re (Re.Perl.re (String.sub s i (j - i))))) with
-     | Re.Perl.Parse_error -> fail (i, j) msg
-  in
+  (* Non-Nested Parts *)
+  let re_perl (i, j) = wrap_loc (i, j) (Code (String.sub s i (j - i))) in
   let rec scan_str i j =
     (match get j with
      | '[' | '?' | '*' | '+' | '{' | '(' | ')' | '|' | '\\' ->
-        (j, wrap_loc (i, j) (Re (Re.str (String.sub s i (j - i)))))
+        (j, re_perl (i, j))
      | _ -> scan_str i (j + 1))
   in
   let scan_escape i =
     if i + 1 = l then fail (i, i+1) "Escape at end of regular expression." else
     (match s.[i + 1] with
-     | 'a'..'z' | 'A'..'Z' ->
-        scan_re ~msg:"Invalid escape instruction." i (i + 2)
-     | ch -> (i + 2, wrap_loc (i, i + 2) (Re (Re.char ch))))
+     | 'a'..'z' | 'A'..'Z' -> (i + 2, re_perl (i, i + 2))
+     | _ -> (i + 2, re_perl (i, i + 2)))
   in
   let rec scan_cset i j =
     if j = l then fail (i, i + 1) "Unbalanced '['." else
@@ -128,7 +124,7 @@ let parse ?(pos = Lexing.dummy_pos) s =
         (match String.index_from_opt s (j + 1) ']' with
          | None -> fail (j + 1, j + 2) "Unbalanced '[' in character set."
          | Some k -> scan_cset i (k + 1))
-     | ']' -> scan_re ~msg:"Invalid character set." i (j + 1)
+     | ']' -> (j + 1, re_perl (i, j + 1))
      | _ -> scan_cset i (j + 1))
   in
 
@@ -209,8 +205,8 @@ let parse ?(pos = Lexing.dummy_pos) s =
           let j, e = scan_group (i + 1) in
           if j = l || s.[j] <> ')' then fail (i, i + 1) "Unbalanced '('." else
           scan_seq_item (j + 1) (wrap_loc (i, j + 1) e :: acc)
-       | '^' -> scan_seq_item (i + 1) (wrap_loc (i, i + 1) (Re Re.bos) :: acc)
-       | '$' -> scan_seq_item (i + 1) (wrap_loc (i, i + 1) (Re Re.eos) :: acc)
+       | '^' -> scan_seq_item (i + 1) (re_perl (i, i + 1) :: acc)
+       | '$' -> scan_seq_item (i + 1) (re_perl (i, i + 1) :: acc)
        | '\\' ->
           let j, e = scan_escape i in
           scan_seq_item j (e :: acc)

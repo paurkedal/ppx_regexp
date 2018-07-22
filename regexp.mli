@@ -16,7 +16,7 @@
 
 type 'a t = 'a node Location.loc
 and 'a node =
-  | Re of 'a
+  | Code of 'a
   | Seq of 'a t list
   | Alt of 'a t list
   | Opt of 'a t
@@ -28,4 +28,4 @@ and 'a node =
 
 type error = {loc: Location.t; msg: string}
 
-val parse : ?pos: Lexing.position -> string -> (Re.t t, error) result
+val parse : ?pos: Lexing.position -> string -> (string t, error) result

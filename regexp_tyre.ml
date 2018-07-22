@@ -27,6 +27,8 @@ let fresh_var =
   let c = ref 0 in
   fun () -> incr c; Printf.sprintf "_ppx_regexp_%d" !c
 
+let nolabel x = (Asttypes.Nolabel, x)
+
 module Tyre = struct
 
   let mk ~loc s = AC.evar ~loc ("Tyre."^s)
@@ -41,6 +43,15 @@ module Tyre = struct
 
 end
 
+module Re = struct
+
+  let mk ~loc s = AC.evar ~loc ("Re."^s)
+
+  let mkf ~loc s l =
+    A.Exp.apply ~loc (mk ~loc s) l
+
+end
+
 (** Utilities for captures *)
 
 type ('a, 'b) capture =
@@ -51,7 +62,7 @@ type ('a, 'b) capture =
 let rec capture e =
   let open Regexp in
   match e.Loc.txt with
-  | Re _ -> No
+  | Code _ -> No
   | Seq l ->
     if List.for_all (fun x -> capture x = No) l then
       No
@@ -85,13 +96,19 @@ let flatten_seq =
   flatten
 
 let extract_re_list l =
-  let is_re = function {Loc.txt = Regexp.Re _; _} -> true | _ -> false in
-  let get_re = function {Loc.txt = Regexp.Re r; _} -> r | _ -> assert false in
-  if List.for_all is_re l then Some (List.map get_re l) else None
+  let is_re = function {Loc.txt = Regexp.Code _; _} -> true | _ -> false in
+  let get = function {Loc.txt = Regexp.Code r; _} -> r | _ -> assert false in
+  if List.for_all is_re l then Some (List.map get l) else None
 
-let rec collapse_ungrouped (t : Re.t Regexp.t) : Re.t Regexp.t = match t.Loc.txt with
-  | Regexp.Re _ -> t
-  | Call _ -> t
+let rec collapse_ungrouped (t : string Regexp.t) =
+  let loc = t.Loc.loc in
+  match t.Loc.txt with
+  | Regexp.Code e ->
+    let f = AC.evar ~loc "Re_perl.re" in
+    let s = A.Exp.constant ~loc (A.Const.string e) in
+    Loc.mkloc (Regexp.Code (A.Exp.apply ~loc f [Nolabel, s])) loc
+  | Call lid ->
+    Loc.mkloc (Regexp.Code (A.Exp.ident ~loc lid)) loc
   | Capture t ->
     Loc.mkloc (Regexp.Capture (collapse_ungrouped t)) t.Loc.loc
   | Capture_as (s, t) ->
@@ -99,26 +116,34 @@ let rec collapse_ungrouped (t : Re.t Regexp.t) : Re.t Regexp.t = match t.Loc.txt
   | Seq l ->
     let l = flatten_seq @@ List.map collapse_ungrouped l in
     let e = match extract_re_list l with
-      | Some r -> Regexp.Re (Re.seq r)
+      | Some r -> Regexp.Code (Re.mkf "seq" ~loc (List.map nolabel r))
       | None -> Regexp.Seq l
     in
     Loc.mkloc e t.Loc.loc
   | Alt l ->
     let l = List.map collapse_ungrouped l in
     let e = match extract_re_list l with
-      | Some r -> Regexp.Re (Re.alt r)
+      | Some r -> Regexp.Code (Re.mkf "alt" ~loc (List.map nolabel r))
       | None -> Regexp.Alt l
     in
     Loc.mkloc e t.Loc.loc
   | Opt t ->
     let e = match collapse_ungrouped t with
-      | {Loc.txt = Regexp.Re r; _} -> Regexp.Re (Re.opt r)
+      | {Loc.txt = Regexp.Code r; _} ->
+          Regexp.Code (Re.mkf ~loc "opt" [nolabel r])
       | t -> Opt t
     in
     Loc.mkloc e t.Loc.loc
   | Repeat ({Loc.txt = (i, j); _} as ij, t) ->
     let e = match collapse_ungrouped t with
-      | {Loc.txt = Regexp.Re r; _} -> Regexp.Re (Re.repn r i j)
+      | {Loc.txt = Regexp.Code r; _} ->
+        let i = A.Exp.constant (A.Const.int i) in
+        let j =
+          match j with
+          | None -> AC.constr "None" []
+          | Some j -> AC.constr "Some" [A.Exp.constant (A.Const.int j)]
+        in
+        Regexp.Code (Re.mkf ~loc "repn" [nolabel r; nolabel i; nolabel j])
       | t -> Repeat (ij, t)
     in
     Loc.mkloc e t.Loc.loc
@@ -228,7 +253,7 @@ let seq_to_conv ~loc l =
 let rec expr_of_regex (t : _ Regexp.t) =
   let loc = t.Loc.loc in
   match t.Loc.txt with
-  | Regexp.Re _ -> failwith "TODO"
+  | Regexp.Code r -> r
   | Seq l ->
     let seq_item re = capture re, expr_of_regex re in
     seq_to_conv ~loc @@ List.map seq_item l
