@@ -95,7 +95,12 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
   in
 
   (* Non-Nested Parts *)
-  let re_perl (i, j) = wrap_loc (i, j) (Code (String.sub s i (j - i))) in
+  let re_perl (i, j) =
+    let sij = String.sub s i (j - i) in
+    try ignore (Re.Perl.re sij); wrap_loc (i, j) (Code sij)
+    with Re.Perl.Parse_error | Re.Perl.Not_supported ->
+      fail (i, j) "Rejected by Re.Perl."
+  in
   let scan_escape i =
     if i + 1 = l then fail (i, i+1) "Escape at end of regular expression." else
     (match s.[i + 1] with

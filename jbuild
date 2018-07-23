@@ -5,7 +5,7 @@
   (public_name ppx_regexp.internal)
   (wrapped false)
   (modules (regexp))
-  (libraries (ocaml-migrate-parsetree))))
+  (libraries (re.perl ocaml-migrate-parsetree))))
 
 (library
  ((name ppx_regexp_pcre)
