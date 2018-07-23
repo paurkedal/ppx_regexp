@@ -16,6 +16,8 @@
 
 let mkloc = Location.mkloc
 
+let (%) f g x = f (g x)
+
 type 'a t = 'a node Location.loc
 and 'a node =
   | Code of 'a
@@ -23,6 +25,7 @@ and 'a node =
   | Alt of 'a t list
   | Opt of 'a t
   | Repeat of (int * int option) Location.loc * 'a t
+  | Nongreedy of 'a t
   | Capture of 'a t
   | Capture_as of string Location.loc * 'a t
   | Call of Longident.t Location.loc
@@ -73,6 +76,16 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
   in
   let wrap_loc (i, j) x = Location.{txt = x; loc = make_loc (i, j)} in
   let with_loc f i = let j, e = f i in j, wrap_loc (i, j) e in
+  let suffix_loc j f (e : _ Location.loc) =
+    let e' = f e in
+    if pos = Lexing.dummy_pos then Location.mknoloc e' else
+    let loc = Location.{
+      loc_start = e.loc.loc_start;
+      loc_end = position_of_index j;
+      loc_ghost = false;
+    } in
+    mkloc e' loc
+  in
 
   let fail (i, j) msg = Location.raise_errorf ~loc:(make_loc (i, j)) "%s" msg in
 
@@ -110,8 +123,12 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
   let rec scan_cset i j =
     if j = l then fail (i, i + 1) "Unbalanced '['." else
     (match s.[j] with
-     | '\\' -> scan_cset i (j + 2)
-     | '[' ->
+     | '\\' ->
+        if j + 1 = l then
+          fail (j, j + 1) "Backslash at end of RE while scanning character set."
+        else
+          scan_cset i (j + 2)
+     | '[' when get (j + 1) = ':' ->
         (match String.index_from_opt s (j + 1) ']' with
          | None -> fail (j + 1, j + 2) "Unbalanced '[' in character set."
          | Some k -> scan_cset i (k + 1))
@@ -132,7 +149,10 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
   in
   let scan_range i =
     let j, n_min = scan_int_opt i in
-    let n_min = match n_min with None -> 0 | Some n -> n in
+    let n_min =
+      (match n_min with
+       | None -> fail (i, i) "Missing lower bound for range."
+       | Some n -> n) in
     (match get j with
      | ',' ->
         let j, n_max = scan_int_opt (j + 1) in
@@ -140,25 +160,23 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
      | _ ->
         (j, n_min, (Some n_min)))
   in
-  let rep_hd i j n_min n_max = function
+  let apply_to_head (i, j) f = function
    | [] -> fail (i, j) "Operator must follow an operand."
-   | (e : _ Location.loc) :: es ->
-      let loc = Location.{
-        loc_start = e.loc.loc_start;
-        loc_end = position_of_index j;
-        loc_ghost = false;
-      } in
-      mkloc (Repeat (wrap_loc (i, j) (n_min, n_max), e)) loc :: es
+   | e :: es -> f e :: es
   in
-  let opt_hd i = function
-   | [] -> fail (i, i + 1) "Operator must follow an operand."
-   | (e : _ Location.loc) :: es ->
-      let loc = Location.{
-        loc_start = e.loc.loc_start;
-        loc_end = position_of_index (i + 1);
-        loc_ghost = false;
-      } in
-      mkloc (Opt e) loc :: es
+  let scan_greedyness i =
+    let j, greedyness =
+      (match get i with
+       | '?' -> (i + 1, suffix_loc (i + 1) (fun e -> Nongreedy e))
+       | '+' -> fail (i, i + 1) "Possessive modifier not supported."
+       | _ -> (i, (fun e -> e))) in
+    (match get j with
+     | '?' | '*' | '+' | '{' ->
+        fail (j, j + 1) "Nested repetition must be parenthesized."
+     | _ -> (j, greedyness))
+  in
+  let repeat (i, j) (n_min, n_max) =
+    suffix_loc j (fun e -> Repeat (wrap_loc (i, j) (n_min, n_max), e))
   in
 
   (* Sequences and Groups *)
@@ -182,17 +200,28 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
        | '[' ->
           let j, e = scan_cset i (i + 1) in
           scan_seq_item j (e :: acc)
-       | ('?' | '*' | '+') when get (i + 1) = '?' ->
-          fail (i, i + 1) "Greedyness modifier not implemented."
-        (* TODO: Reject nested cases which require paretheses in PCRE.
-         * TODO: Reject repetition of ε and zero-width assertions. *)
-       | '?' -> scan_seq_item (i + 1) (opt_hd i acc)
-       | '*' -> scan_seq_item (i + 1) (rep_hd i (i + 1) 0 None acc)
-       | '+' -> scan_seq_item (i + 1) (rep_hd i (i + 1) 1 None acc)
+        (* TODO: Reject repetition of ε and zero-width assertions. *)
+       | '?' ->
+          let j = i + 1 in
+          let f = suffix_loc j (fun e -> Opt e) in
+          let k, g = scan_greedyness j in
+          scan_seq_item k (apply_to_head (i, k) (g % f) acc)
+       | '*' ->
+          let j = i + 1 in
+          let f = repeat (i, j) (0, None) in
+          let k, g = scan_greedyness j in
+          scan_seq_item k (apply_to_head (i, k) (g % f) acc)
+       | '+' ->
+          let j = i + 1 in
+          let f = repeat (i, j) (1, None) in
+          let k, g = scan_greedyness j in
+          scan_seq_item k (apply_to_head (i, k) (g % f) acc)
        | '{' ->
           let j, n_min, n_max = scan_range (i + 1) in
           if j = l || s.[j] <> '}' then fail (i, i + 1) "Unbalanced '{'." else
-          scan_seq_item (j + 1) (rep_hd i (j + 1) n_min n_max acc)
+          let f = repeat (i, j) (n_min, n_max) in
+          let k, g = scan_greedyness (j + 1) in
+          scan_seq_item k (apply_to_head (i, k) (g % f) acc)
        | '(' ->
           let j, e = scan_group (i + 1) in
           if j = l || s.[j] <> ')' then fail (i, i + 1) "Unbalanced '('." else

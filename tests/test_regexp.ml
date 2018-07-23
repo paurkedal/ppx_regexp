@@ -69,6 +69,7 @@ module Regexp = struct
        | {Loc.txt = Opt _; _} as e' -> e'.Loc.txt
        | e' -> Opt e')
    | Repeat (ij, e) -> Repeat (ij, simplify e)
+   | Nongreedy e -> Nongreedy (simplify e)
    | Capture e -> Capture (simplify e)
    | Capture_as (name, e) -> Capture_as (name, simplify e)
    | Code _ | Call _ as e -> e
@@ -81,6 +82,7 @@ module Regexp = struct
      | Opt e1, Opt e2 -> equal' e1 e2
      | Repeat ({Loc.txt = ij1; _}, e1), Repeat ({Loc.txt = ij2; _}, e2) ->
         ij1 = ij2 && equal' e1 e2
+     | Nongreedy e1, Nongreedy e2 -> equal' e1 e2
      | Capture e1, Capture e2 -> equal' e1 e2
      | Capture_as (name1, e1), Capture_as (name2, e2) ->
         name1.Loc.txt = name2.Loc.txt && equal' e1 e2
@@ -105,6 +107,8 @@ module Regexp = struct
           let j_str = match j_opt with None -> "" | Some j -> string_of_int j in
           delimit_if (p >= p_suffix)
             (sprintf "%s{%d,%s}" (aux p_suffix e) i j_str)
+       | Nongreedy e ->
+          aux (p_suffix - 1) e ^ "?"
        | Capture e ->
           "(+" ^ aux p_bottom e ^ ")"
        | Capture_as ({Loc.txt = name; _}, e) ->
@@ -151,6 +155,8 @@ module Regexp = struct
         let pp_option f ppf = function None -> () | Some e -> f ppf e in
         fprintf ppf "(Repeat {%d,%a}%a %a)"
           i (pp_option Format.pp_print_int) j pp_loc loc pp_debug e
+     | Nongreedy e ->
+        fprintf ppf "(Nongreedy %a)" pp_debug e
      | Capture e ->
         fprintf ppf "(Capture %a)" pp_debug e
      | Capture_as (name, e) ->

@@ -21,6 +21,7 @@ and 'a node =
   | Alt of 'a t list
   | Opt of 'a t
   | Repeat of (int * int option) Location.loc * 'a t
+  | Nongreedy of 'a t
   | Capture of 'a t
   | Capture_as of string Location.loc * 'a t
   | Call of Longident.t Location.loc

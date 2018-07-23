@@ -82,6 +82,7 @@ let rec capture e =
       Unnamed ()
   | Opt t -> capture t
   | Repeat (_,t) -> capture t
+  | Nongreedy t -> capture t
   | Capture _ -> Unnamed ()
   | Capture_as (s,_) -> Named s
   | Call _ -> Unnamed ()
@@ -162,6 +163,13 @@ let rec collapse_ungrouped (t : string Regexp.t) =
         in
         Regexp.Code (Re.mkf ~loc "repn" [nolabel r; nolabel i; nolabel j])
       | t -> Repeat (ij, t)
+    in
+    Loc.mkloc e t.Loc.loc
+  | Nongreedy t ->
+    let e = match collapse_ungrouped t with
+      | {Loc.txt = Regexp.Code r; _} ->
+        Regexp.Code (Re.mkf ~loc "non_greedy" [nolabel r])
+      | t -> Nongreedy t
     in
     Loc.mkloc e t.Loc.loc
 
@@ -371,6 +379,8 @@ let rec expr_of_regex (t : _ Regexp.t) =
     Tyre.mkf ~loc "rep1" [Nolabel, expr_of_regex t]
   | Repeat ({loc; _}, _) ->
     Loc.raise_errorf ~loc "Repetitions other than + and * are not implemented."
+  | Nongreedy t ->
+    Tyre.mkf ~loc "non_greedy" [Nolabel, expr_of_regex t]
   | Capture t -> expr_of_regex t
   | Capture_as (_, t) -> expr_of_regex t
   | Call lid -> A.Exp.ident lid
