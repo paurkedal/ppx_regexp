@@ -51,7 +51,7 @@ module Re = struct
 
   let mkf ~loc s l =
     A.Exp.apply ~loc (mk ~loc s) l
-      
+
   let mkfl ~loc s l = mkf ~loc s [Nolabel, AC.list ~loc l]
 
 end
@@ -113,7 +113,8 @@ let flatten_alt =
 
 let extract_re_list ~loc l =
   let is_re = function {Loc.txt = Regexp.Code _; _} -> true | _ -> false in
-  let get = function {Loc.txt = Regexp.Code r; _} -> r | _ -> internal_error ~loc in
+  let get =
+    function {Loc.txt = Regexp.Code r; _} -> r | _ -> internal_error ~loc in
   if List.for_all is_re l then Some (List.map get l) else None
 
 let rec collapse_ungrouped (t : string Regexp.t) =
@@ -275,10 +276,10 @@ let make_match_to_nested ~loc mk_pats matched =
       (mk_pat @@ AC.pvar ~loc id)
       (make_nested_either_constr ~loc n @@ AC.evar ~loc id)
   in
-  A.Exp.match_ ~loc matched @@ List.mapi make_case mk_pats 
+  A.Exp.match_ ~loc matched @@ List.mapi make_case mk_pats
 
 let make_conv_sum ~loc captures tyre_expr =
-  let name_from_capture i = function 
+  let name_from_capture i = function
     | No ->
       Loc.raise_errorf ~loc
         "All alternatives branches must have a capturing group."
@@ -297,12 +298,12 @@ let make_conv_sum ~loc captures tyre_expr =
   let fun_from =
     let pat_branchs =
       List.map (fun {Loc.loc;txt} -> ppoly ~loc txt) branchnames
-    in 
+    in
     let expr =  make_match_to_nested ~loc pat_branchs (AC.evar ~loc id) in
     A.Exp.fun_ ~loc Nolabel None (AC.pvar ~loc id) expr
   in
   Tyre.conv ~loc fun_to fun_from tyre_expr
-  
+
 (** Alternatives *)
 
 let rec alt_to_expr ~loc = function
@@ -368,7 +369,8 @@ let rec expr_of_regex (t : _ Regexp.t) =
     Tyre.mkf ~loc "rep" [Nolabel, expr_of_regex t]
   | Repeat ({Loc.txt = (1, None); _}, t) ->
     Tyre.mkf ~loc "rep1" [Nolabel, expr_of_regex t]
-  | Repeat ({loc},_) -> Loc.raise_errorf ~loc "Repetitions other than + and * are not implemented."
+  | Repeat ({loc; _}, _) ->
+    Loc.raise_errorf ~loc "Repetitions other than + and * are not implemented."
   | Capture t -> expr_of_regex t
   | Capture_as (_, t) -> expr_of_regex t
   | Call lid -> A.Exp.ident lid
@@ -380,7 +382,7 @@ let adjust_position ~loc delim =
   | None -> loc.Loc.loc_start +~ 1
   | Some s -> loc.Loc.loc_start +~ (String.length s + 2)
 let expr_of_string ~loc s delim =
-  let pos = adjust_position loc delim in
+  let pos = adjust_position ~loc delim in
   expr_of_regex @@ simplify @@ Regexp.parse_exn ~pos s
 
 
@@ -389,7 +391,7 @@ let rec regexp_of_pattern pat =
   let loc = pat.ppat_loc in
   let re = match pat.ppat_desc with
     | Ppat_constant (Pconst_string (s, delim)) ->
-      let pos = adjust_position loc delim in
+      let pos = adjust_position ~loc delim in
       Regexp.(Capture (parse_exn ~pos s))
     | Ppat_alias (pat, s) ->
       Regexp.(Capture_as (s, regexp_of_pattern pat))
@@ -411,7 +413,7 @@ let expr_of_function ~loc l =
     | Some e ->
       Loc.raise_errorf ~loc:e.Parsetree.pexp_loc
         "Tyre patterns can not have guards."
-  in  
+  in
   let route_of_case {Parsetree. pc_rhs ; pc_guard ; pc_lhs } =
     err_on_guard pc_guard;
     let loc = pc_lhs.ppat_loc in
@@ -441,7 +443,8 @@ let expr mapper e_ext =
      | Pexp_function l ->
        expr_of_function ~loc l
      | _ ->
-       Loc.raise_errorf ~loc "[%%tyre] is only allowed on constant strings and functions.")
+       Loc.raise_errorf ~loc
+        "[%%tyre] is only allowed on constant strings and functions.")
   | _ -> default_mapper.expr mapper e_ext
 
 let () =
