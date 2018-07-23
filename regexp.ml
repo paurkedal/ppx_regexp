@@ -132,7 +132,8 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
         (match String.index_from_opt s (j + 1) ']' with
          | None -> fail (j + 1, j + 2) "Unbalanced '[' in character set."
          | Some k -> scan_cset i (k + 1))
-     | ']' -> (j + 1, re_perl (i, j + 1))
+     | ']' when j <> i + 1 && (j <> i + 2 || s.[i + 1] <> '^') ->
+        (j + 1, re_perl (i, j + 1))
      | _ -> scan_cset i (j + 1))
   in
 
