@@ -90,22 +90,27 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
   let fail (i, j) msg = Location.raise_errorf ~loc:(make_loc (i, j)) "%s" msg in
 
   (* Identifiers *)
-  let rec scan_ident i j =
-    if j = l then fail (i, j) "Unterminated named capture." else
-    (match s.[j] with
-     | '0'..'9' when i = j -> fail (i, j + 1) "Invalid identifier first char."
-     | 'A'..'Z' | '0'..'9' | 'a'..'z' | '_' -> scan_ident i (j + 1)
-     | _ when i = j -> fail (i, i) "Missing identifier."
-     | _ -> (j, wrap_loc (i, j) (String.sub s i (j - i))))
+  let scan_ident i =
+    let rec scan_cont j =
+      (match get j with
+       | 'A'..'Z' | 'a'..'z' | '0'..'9' | '_' | '\'' -> scan_cont (j + 1)
+       | _ -> (j, String.sub s i (j - i)))
+    in
+    (match get i with
+     | 'A'..'Z' | 'a'..'z' | '_' -> scan_cont (i + 1)
+     | _ -> fail (i, i) "Expecting an identifier.")
   in
   let scan_longident i =
-    let rec loop j =
-      (match get j with
-       | 'A'..'Z' | 'a'..'z' | '0'..'9' | '_' | '.' -> loop (j + 1)
-       | _ -> (j, Longident.parse (String.sub s i (j - i))))
+    let rec scan_cont i lidr =
+      if get i <> '.' then (i, lidr) else
+      let j, idr = scan_ident i in
+      scan_cont j (Longident.Ldot (lidr, idr))
     in
-    loop i (* TODO: Which exception to catch? *)
+    let j, idr = scan_ident i in
+    scan_cont j (Longident.Lident idr)
   in
+  let scan_ident = with_loc scan_ident in
+  let scan_longident = with_loc scan_longident in
 
   (* Non-Nested Parts *)
   let re_perl (i, j) =
@@ -240,10 +245,10 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
           if i + 1 = l then fail (i - 1, i) "Unbalanced '('." else
           (match s.[i + 1] with
            | '&' ->
-              let j, idr = with_loc scan_longident (i + 2) in
+              let j, idr = scan_longident (i + 2) in
               (j, Call idr)
            | '<' ->
-              let j, idr = scan_ident (i + 2) (i + 2) in
+              let j, idr = scan_ident (i + 2) in
               if get j <> '>' then fail (i, i + 1) "Unbalanced '<'." else
               let k, e = with_loc scan_alt (j + 1) in
               (k, Capture_as (idr, e))
