@@ -43,7 +43,14 @@ let simplify_alt es =
    | [e] -> e.Location.txt
    | es -> Alt es)
 
-module Int_map = Map.Make (struct type t = int let compare = compare end)
+module Int_map = struct
+  module M = Map.Make (struct type t = int let compare = compare end)
+
+  [@@@ocaml.warning "-32"]
+  let find_last f m = List.find (fun (k, _) -> f k) (List.rev (M.bindings m))
+
+  include M
+end
 
 let parse_exn ?(pos = Lexing.dummy_pos) s =
   let l = String.length s in
@@ -134,9 +141,10 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
         else
           scan_cset i (j + 2)
      | '[' when get (j + 1) = ':' ->
-        (match String.index_from_opt s (j + 1) ']' with
-         | None -> fail (j + 1, j + 2) "Unbalanced '[' in character set."
-         | Some k -> scan_cset i (k + 1))
+        (match String.index_from s (j + 1) ']' with
+         | exception Not_found ->
+            fail (j + 1, j + 2) "Unbalanced '[' in character set."
+         | k -> scan_cset i (k + 1))
      | ']' when j <> i + 1 && (j <> i + 2 || s.[i + 1] <> '^') ->
         (j + 1, re_perl (i, j + 1))
      | _ -> scan_cset i (j + 1))
@@ -267,6 +275,3 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
   in
   let j, e = with_loc scan_toplevel 0 in
   if j <> l then fail (j, j + 1) "Unbalanced ')'." else e
-
-let parse ?pos s =
-  try Ok (parse_exn ?pos s) with Location.Error error -> Error error

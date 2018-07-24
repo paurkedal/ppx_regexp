@@ -27,6 +27,4 @@ and 'a node =
   | Call of Longident.t Location.loc
   (* TODO: | Case_sense of t | Case_blind of t *)
 
-val parse : ?pos: Lexing.position -> string -> (string t, Location.error) result
-
 val parse_exn : ?pos: Lexing.position -> string -> string t

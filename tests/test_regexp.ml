@@ -255,9 +255,10 @@ let arb_regexp =
 let tests = [
   Q.Test.make ~name:"parse ∘ to_string" arb_regexp
     (fun e ->
-      (match Regexp.parse (Regexp.to_string e) with
-       | Error err -> Q.Test.fail_reportf "%a" Location.report_error err
-       | Ok e' -> Regexp.equal e' e));
+      (match Regexp.parse_exn (Regexp.to_string e) with
+       | exception Location.Error err ->
+          Q.Test.fail_reportf "%a" Location.report_error err
+       | e' -> Regexp.equal e' e));
   (* TODO:
    * - `to_string ∘ parse`: An arbitrary string will not be canonical, but even
    *   controlled generation should add coverage compared to the above identity.
