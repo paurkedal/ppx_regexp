@@ -58,7 +58,7 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
         if s.[i] <> '\n' then loop acc lnum (i + 1) else
         loop (Int_map.add (i + 1) (lnum + 1) acc) (lnum + 1) (i + 1)
       in
-      loop (Int_map.singleton 0 pos.pos_lnum) pos.pos_lnum pos.pos_bol
+      loop (Int_map.singleton 0 pos.pos_lnum) pos.pos_lnum 0
     in
     fun i ->
       let j, pos_lnum = Int_map.find_last (fun j -> j <= i) newlines in
