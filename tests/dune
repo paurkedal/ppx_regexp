@@ -1,0 +1,25 @@
+(executable
+  (name main)
+  (modules Main)
+  (libraries ppx_regexp.pcre ppx_regexp.tyre ocaml-migrate-parsetree))
+
+(executable
+  (name test_regexp)
+  (modules test_regexp)
+  (libraries ppx_regexp_internal qcheck))
+
+(alias
+  (name runtest)
+  (deps (:x test_regexp.exe))
+  (action (run %{x})))
+
+(executable
+  (name test_ppx_regexp_pcre)
+  (modules test_ppx_regexp_pcre)
+  (libraries re re.perl)
+  (preprocess (pps ppx_regexp.pcre)))
+
+(alias
+  (name runtest)
+  (deps (:x test_ppx_regexp_pcre.exe))
+  (action (run %{x})))
