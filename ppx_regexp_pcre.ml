@@ -21,8 +21,9 @@ let ocaml_version = Versions.ocaml_404
 open Ast_mapper
 open Ast_helper
 open Asttypes
-open Parsetree
 open Longident
+open Parsetree
+open Printf
 
 let error ~loc msg = raise (Location.Error (Location.error ~loc msg))
 
@@ -30,6 +31,70 @@ let warn ~loc msg e =
   let e_msg = Exp.constant (Const.string msg) in
   let structure = {pstr_desc = Pstr_eval (e_msg, []); pstr_loc = loc} in
   Exp.attr e ({txt = "ocaml.ppwarning"; loc}, PStr [structure])
+
+module List = struct
+  include List
+
+  let rec fold f = function
+   | []      -> fun acc -> acc
+   | x :: xs -> fun acc -> fold f xs (f x acc)
+end
+
+module Regexp = struct
+  include Regexp
+
+  let bindings =
+    let rec recurse must_match (e' : _ Location.loc) =
+      let loc = e'.Location.loc in
+      (match e'.Location.txt with
+       | Code _ -> fun acc -> acc
+       | Seq es -> List.fold (recurse must_match) es
+       | Alt es -> List.fold (recurse false) es
+       | Opt e -> recurse false e
+       | Repeat ({Location.txt = (i, _); _}, e) ->
+          recurse (must_match && i > 0) e
+       | Nongreedy e -> recurse must_match e
+       | Capture _ -> error ~loc "Unnamed capture is not allowed for %pcre."
+       | Capture_as (idr, e) ->
+          fun (nG, bs) ->
+            recurse must_match e (nG + 1, (idr, Some nG, must_match) :: bs)
+       | Call _ -> error ~loc "(&...) is not implemented for %pcre.")
+    in
+    (function
+     | {Location.txt = Capture_as (idr, e); _} ->
+        recurse true e (0, [idr, None, true])
+     | e ->
+        recurse true e (0, []))
+
+  let to_string =
+    let p_alt, p_seq, p_suffix, p_atom = 0, 1, 2, 3 in
+    let delimit_if b s = if b then "(?:" ^ s ^ ")" else s in
+    let rec recurse p (e' : _ Location.loc) =
+      let loc = e'.Location.loc in
+      (match e'.Location.txt with
+       | Code s ->
+          (* Delimiters not needed as Regexp.parse_exn only returns single
+           * chars, csets, and escape sequences. *)
+          s
+       | Seq es ->
+          delimit_if (p > p_seq)
+            (String.concat "" (List.map (recurse p_seq) es))
+       | Alt es ->
+          delimit_if (p > p_alt)
+            (String.concat "|" (List.map (recurse p_alt) es))
+       | Opt e ->
+          delimit_if (p > p_suffix) (recurse p_atom e ^ "?")
+       | Repeat ({Location.txt = (i, j_opt); _}, e) ->
+          let j_str = match j_opt with None -> "" | Some j -> string_of_int j in
+          delimit_if (p > p_suffix)
+            (sprintf "%s{%d,%s}" (recurse p_atom e) i j_str)
+       | Nongreedy e -> recurse p_suffix e ^ "?"
+       | Capture _ -> error ~loc "Unnamed capture is not allowed for %pcre."
+       | Capture_as (_, e) -> "(" ^ recurse p_alt e ^ ")"
+       | Call _ -> error ~loc "(&...) is not implemented for %pcre.")
+    in
+    recurse 0
+end
 
 let dyn_bindings = ref []
 let clear_bindings () = dyn_bindings := []
@@ -56,63 +121,10 @@ let rec must_match p i =
   else
     true
 
-let extract_bindings ~loc p =
-  let l = String.length p in
-  let buf = Buffer.create l in
-  let
-    rec parse_normal nG stack bs i =
-      if i = l then
-        if stack = [] then (bs, nG) else
-        error ~loc "Unmatched start of group."
-      else begin
-        Buffer.add_char buf p.[i];
-        (match p.[i] with
-         | '('  -> parse_bgroup nG stack bs (i + 1)
-         | ')'  -> parse_egroup nG stack bs (i + 1)
-         | '\\' -> parse_escape nG stack bs (i + 1)
-         | _ ->    parse_normal nG stack bs (i + 1))
-      end
-    and parse_escape nG stack bs i =
-      if i = l then (bs, nG) else begin
-        Buffer.add_char buf p.[i];
-        parse_normal nG stack bs (i + 1)
-      end
-    and parse_bgroup nG stack bs i =
-      if i + 2 >= l || p.[i] <> '?' || p.[i + 1] <> '<' then
-        parse_normal (nG + 1) ((None, nG, bs) :: stack) [] i
-      else
-        let j = String.index_from p (i + 2) '>' in
-        let varG = String.sub p (i + 2) (j - i - 2) in
-        parse_normal (nG + 1) ((Some varG, nG, bs) :: stack) [] (j + 1)
-    and parse_egroup nG stack bs i =
-      let bs, bs', stack' =
-        (match stack with
-         | [] -> error ~loc "Unmached end of group."
-         | ((Some varG, iG, bs') :: stack') ->
-            let bs = (varG, Some iG, true) :: bs in
-            (bs, bs', stack')
-         | ((None, _, bs') :: stack') ->
-            (bs, bs', stack'))
-      in
-      let bs =
-        if must_match p i then bs else
-        List.map (fun (varG, iG, _) -> (varG, iG, false)) bs
-      in
-      parse_normal nG stack' (List.rev_append bs bs') i
-  in
-  let parse_first () =
-    if l >= 4 && p.[0] = '?' && p.[1] = '<' then
-      let j = String.index_from p 2 '>' in
-      let varG = String.sub p 2 (j - 2) in
-      parse_normal 0 [] [varG, None, true] (j + 1)
-    else
-      parse_normal 0 [] [] 0
-  in
-  let bs, nG = parse_first () in
-  let re_str = Buffer.contents buf in
-  (try ignore Re.Perl.(compile (re re_str)) with
-   | Re.Perl.Not_supported -> error ~loc "Unsupported regular expression."
-   | Re.Perl.Parse_error -> error ~loc "Invalid regular expression.");
+let extract_bindings ~pos s =
+  let r = Regexp.parse_exn ~pos s in
+  let nG, bs = Regexp.bindings r in
+  let re_str = Regexp.to_string r in
   (Exp.constant (Const.string re_str), bs, nG)
 
 let rec wrap_group_bindings ~loc rhs offG = function
@@ -129,7 +141,7 @@ let rec wrap_group_bindings ~loc rhs offG = function
       [%expr try Some [%e eG] with Not_found -> None]
     in
     [%expr
-      let [%p Pat.var {txt = varG; loc}] = [%e eG] in
+      let [%p Pat.var varG] = [%e eG] in
       [%e wrap_group_bindings ~loc rhs offG bs]]
 
 let transform_cases ~loc cases =
@@ -137,9 +149,12 @@ let transform_cases ~loc cases =
     if case.pc_guard <> None then
       error ~loc "Guards are not implemented for match%pcre." else
     (match case.pc_lhs with
-     | { ppat_desc = Ppat_constant (Pconst_string (re_src,_));
-         ppat_loc = loc; _ } ->
-        let re, bs, nG = extract_bindings ~loc re_src in
+     | { ppat_desc = Ppat_constant (Pconst_string (re_src, re_delim));
+         ppat_loc = {loc_start; _}; _ } ->
+        let re_offset =
+          (match re_delim with Some s -> String.length s + 2 | None -> 1) in
+        let pos = {loc_start with pos_cnum = loc_start.pos_cnum + re_offset} in
+        let re, bs, nG = extract_bindings ~pos re_src in
         (re, nG, bs, case.pc_rhs)
 (*
      | {ppat_desc = Ppat_alias

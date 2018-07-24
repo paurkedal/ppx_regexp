@@ -48,6 +48,8 @@ let rec test2 s =
    | {|^<(?<x>[^<>]+)><(?<y>[^<>]+)>$|} -> assert (s = "<" ^ x ^ "><" ^ y ^ ">")
    | {|^((?<elt>[^;<>]);)+$|} -> assert (elt = last_elt s)
    | {|^[^{}]*\{(?<s'>.*)\}|} -> test2 s'
+   | {|^(?<a>one)|(?<b>two)$|} ->
+      assert (a = Some "one" && b = None || a = None && b = Some "two")
    | _ -> assert false)
 
 let test3 s =
@@ -69,6 +71,8 @@ let () =
   test2 "a;b;c;d;";
   test2 "<a;b>";
   test2 "Xx{--{a;b;c;}--}yY.";
+  test2 "one";
+  test2 "two";
   test3 "- + &nbsp; + -";
   test3 "catch-all"
 
