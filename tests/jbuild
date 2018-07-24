@@ -11,8 +11,8 @@
   (libraries (ppx_regexp_internal qcheck))))
 
 (executables
- ((names (test_ppx_regexp))
-  (modules (test_ppx_regexp))
+ ((names (test_ppx_regexp_pcre))
+  (modules (test_ppx_regexp_pcre))
   (libraries (re re.perl))
   (preprocess (pps (ppx_regexp.pcre)))))
 
@@ -23,5 +23,5 @@
 
 (alias
  ((name runtest)
-  (deps (test_ppx_regexp.exe))
+  (deps (test_ppx_regexp_pcre.exe))
   (action (run ${<}))))
