@@ -246,41 +246,33 @@ let make_conv_tuple ~loc n tyre_expr =
 
 let ppoly s ~loc x = A.Pat.(variant ~loc s (Some x))
 let epoly s ~loc x = A.Exp.(variant ~loc s (Some x))
-
-let eleft = epoly "Left"
-let eright = epoly "Right"
-let pleft = ppoly "Left"
-let pright = ppoly "Right"
-
-let rec make_match_from_nested ~loc mk_exprs matched =
-  match mk_exprs with
-  | [] -> internal_error ~loc
-  | [ mk_expr ] -> mk_expr matched
-  | mk_expr :: mk_exprs ->
-    let id = "v" in
-    let right_expr = make_match_from_nested ~loc mk_exprs (AC.evar id) in
-    A.Exp.(match_ ~loc matched [
-        case (pleft ~loc @@ AC.pvar id) (mk_expr @@ AC.evar ~loc id) ;
-        case (pright ~loc @@ AC.pvar id) right_expr ;
-      ])
-
-let make_match_to_nested ~loc mk_pats matched =
-  let length = List.length mk_pats in
-  let make_nested_either_constr ~loc n expr =
-    let rec nested_rights ~loc n expr =
-      if n = 0 then expr
-      else eright ~loc (nested_rights ~loc (n-1) expr)
-    in
-    if n = length - 1 then nested_rights ~loc n expr
-    else nested_rights ~loc n (eleft ~loc expr)
+let make_nested_either_constr ~loc ~length ~mk n x =
+  let rec nested_rights ~loc n expr =
+    if n = 0 then expr
+    else mk "Right" ~loc (nested_rights ~loc (n-1) expr)
   in
+  if n = length - 1 then nested_rights ~loc n x
+  else nested_rights ~loc n (mk "Left" ~loc x)
+
+let make_match_from_nested ~loc mk_exprs =
+  let length = List.length mk_exprs in
+  let make_case n mk_expr =
+    let id = "v" in
+    A.Exp.case
+      (make_nested_either_constr ~loc ~length ~mk:ppoly n @@ AC.pvar ~loc id)
+      (mk_expr @@ AC.evar ~loc id)
+  in
+  A.Exp.function_ ~loc @@ List.mapi make_case mk_exprs
+
+let make_match_to_nested ~loc mk_pats =
+  let length = List.length mk_pats in
   let make_case n mk_pat =
     let id = "v" in
     A.Exp.case
       (mk_pat @@ AC.pvar ~loc id)
-      (make_nested_either_constr ~loc n @@ AC.evar ~loc id)
+      (make_nested_either_constr ~loc ~length ~mk:epoly n @@ AC.evar ~loc id)
   in
-  A.Exp.match_ ~loc matched @@ List.mapi make_case mk_pats
+  A.Exp.function_ ~loc @@ List.mapi make_case mk_pats
 
 let make_conv_sum ~loc captures tyre_expr =
   let name_from_capture i = function
@@ -291,20 +283,17 @@ let make_conv_sum ~loc captures tyre_expr =
     | Named s -> s
   in
   let branchnames = List.mapi name_from_capture captures in
-  let id = "v" in
   let fun_to =
     let expr_branchs =
       List.map (fun {Loc.loc;txt} -> epoly ~loc txt) branchnames
     in
-    let expr =  make_match_from_nested ~loc expr_branchs (AC.evar ~loc id) in
-    A.Exp.fun_ ~loc Nolabel None (AC.pvar ~loc id) expr
+    make_match_from_nested ~loc expr_branchs
   in
   let fun_from =
     let pat_branchs =
       List.map (fun {Loc.loc;txt} -> ppoly ~loc txt) branchnames
     in
-    let expr =  make_match_to_nested ~loc pat_branchs (AC.evar ~loc id) in
-    A.Exp.fun_ ~loc Nolabel None (AC.pvar ~loc id) expr
+    make_match_to_nested ~loc pat_branchs
   in
   Tyre.conv ~loc fun_to fun_from tyre_expr
 
