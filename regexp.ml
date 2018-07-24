@@ -262,7 +262,10 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
   in
 
   (* Top-Level *)
-  let j, e = with_loc scan_alt 0 in
+  let scan_toplevel i =
+    if get i = '?' && get (i + 1) = '<' then scan_group i else scan_alt i
+  in
+  let j, e = with_loc scan_toplevel 0 in
   if j <> l then fail (j, j + 1) "Unbalanced ')'." else e
 
 let parse ?pos s =
