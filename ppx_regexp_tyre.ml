@@ -117,17 +117,15 @@ let extract_re_list ~loc l =
   if List.for_all is_re l then Some (List.map get l) else None
   
 let collapse_ungrouped_seq ~loc l =
-  let mkseq rl =
-    Loc.mkloc (Regexp.Code (Re.mkfl "seq" ~loc @@ List.rev rl)) loc
+  let mkseq = function
+    | [] -> []
+    | rl -> [Loc.mkloc (Regexp.Code (Re.mkfl "seq" ~loc @@ List.rev rl)) loc]
   in
   let rec aux acc = function
-    | [] -> begin match acc with
-        | [] -> []
-        | l -> [mkseq l]
-      end
+    | [] -> mkseq acc
     | {Loc.txt = Regexp.Code r ; _ } :: l -> aux (r :: acc) l
     | h :: t ->
-      mkseq acc :: h :: aux [] t
+      mkseq acc @ h :: aux [] t
   in
   match aux [] l with
   | [] -> Regexp.Code (Re.mk ~loc "epsilon")
