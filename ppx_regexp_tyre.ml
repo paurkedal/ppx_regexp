@@ -115,6 +115,24 @@ let extract_re_list ~loc l =
   let get =
     function {Loc.txt = Regexp.Code r; _} -> r | _ -> internal_error ~loc in
   if List.for_all is_re l then Some (List.map get l) else None
+  
+let collapse_ungrouped_seq ~loc l =
+  let mkseq rl =
+    Loc.mkloc (Regexp.Code (Re.mkfl "seq" ~loc @@ List.rev rl)) loc
+  in
+  let rec aux acc = function
+    | [] -> begin match acc with
+        | [] -> []
+        | l -> [mkseq l]
+      end
+    | {Loc.txt = Regexp.Code r ; _ } :: l -> aux (r :: acc) l
+    | h :: t ->
+      mkseq acc :: h :: aux [] t
+  in
+  match aux [] l with
+  | [] -> Regexp.Code (Re.mk ~loc "epsilon")
+  | [ x ] -> x.txt
+  | l -> Seq l
 
 let rec collapse_ungrouped (t : string Regexp.t) =
   let loc = t.Loc.loc in
@@ -131,10 +149,7 @@ let rec collapse_ungrouped (t : string Regexp.t) =
       Capture_as (s, collapse_ungrouped t)
     | Seq l ->
       let l = flatten_seq @@ List.map collapse_ungrouped l in
-      begin match extract_re_list ~loc l with
-        | Some r -> Code (Re.mkfl "seq" ~loc r)
-        | None -> Seq l
-      end
+      collapse_ungrouped_seq ~loc l
     | Alt l ->
       let l = flatten_alt @@ List.map collapse_ungrouped l in
       begin match extract_re_list ~loc l with
