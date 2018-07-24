@@ -25,11 +25,9 @@ module Loc = Location
 
 let internal_error ~loc = Loc.raise_errorf ~loc "Internal error@."
 
-let fresh_var =
+let mk_gen s = 
   let c = ref 0 in
-  fun () -> incr c; Printf.sprintf "_ppx_regexp_%d" !c
-
-let nolabel x = (Asttypes.Nolabel, x)
+  fun () -> incr c; Printf.sprintf "%s%d" s !c
 
 module Tyre = struct
 
@@ -146,7 +144,7 @@ let rec collapse_ungrouped (t : string Regexp.t) =
     | Opt t ->
       begin match collapse_ungrouped t with
         | {Loc.txt = Code r; _} ->
-          Code (Re.mkf ~loc "opt" [nolabel r])
+          Code (Re.mkf ~loc "opt" [Nolabel, r])
         | t -> Opt t
       end
     | Repeat ({Loc.txt = (i, j); _} as ij, t) ->
@@ -158,13 +156,13 @@ let rec collapse_ungrouped (t : string Regexp.t) =
             | None -> AC.constr "None" []
             | Some j -> AC.constr "Some" [A.Exp.constant (A.Const.int j)]
           in
-          Code (Re.mkf ~loc "repn" [nolabel r; nolabel i; nolabel j])
+          Code (Re.mkf ~loc "repn" [Nolabel, r; Nolabel, i; Nolabel, j])
         | t -> Repeat (ij, t)
       end
     | Nongreedy t ->
       begin match collapse_ungrouped t with
         | {Loc.txt = Code r; _} ->
-          Code (Re.mkf ~loc "non_greedy" [nolabel r])
+          Code (Re.mkf ~loc "non_greedy" [Nolabel, r])
         | t -> Nongreedy t
       end
   in
@@ -174,12 +172,12 @@ let simplify = collapse_ungrouped
 
 (** Converters to/from nested tuples *)
 
-let rec make_nested_tuple_pat ~loc n =
-  let v = fresh_var () in
-  if n = 1 then
-    [v], AC.pvar ~loc v
-  else
-    let vars, pat = make_nested_tuple_pat ~loc (n-1) in
+let rec make_nested_tuple_pat ~loc ids =
+  match ids with
+  | [] -> internal_error ~loc
+  | [ v ] -> [v], AC.pvar ~loc v
+  | v :: ids -> 
+    let vars, pat = make_nested_tuple_pat ~loc ids in
     (v :: vars), A.Pat.tuple ~loc [AC.pvar ~loc v;pat]
 let rec make_nested_tuple_expr ~loc exprs =
   match exprs with
@@ -203,9 +201,9 @@ let make_object_expr ~loc expr meths =
   in
   A.Exp.object_ ~loc (A.Cstr.mk (A.Pat.any ~loc ()) @@ f expr meths)
 
-let make_conv_of_nested_tuple ~loc ~make_pat ~make_expr ~n tyre_expr =
+let make_conv_of_nested_tuple ~loc ~make_pat ~make_expr ~ids tyre_expr =
   let fun_to =
-    let vars, tuple_pat = make_nested_tuple_pat ~loc n in
+    let vars, tuple_pat = make_nested_tuple_pat ~loc ids in
     let lids = List.map (AC.evar ~loc) vars in
     let expr = make_expr ~loc lids in
     A.Exp.fun_ ~loc Nolabel None tuple_pat expr
@@ -218,29 +216,31 @@ let make_conv_of_nested_tuple ~loc ~make_pat ~make_expr ~n tyre_expr =
   Tyre.conv ~loc fun_to fun_from tyre_expr
 
 let make_conv_object ~loc meths tyre_expr =
-  let n = List.length meths in
+  let obj_var = "v" in
+  let gen = mk_gen obj_var in
+  let ids = List.init (List.length meths) (fun _ -> gen ()) in
   let make_expr ~loc lids =
     make_object_expr ~loc lids meths
   in
   let make_pat ~loc () =
-    let obj_var = fresh_var () in
     let obj = AC.evar ~loc obj_var in
     let obj_pat = AC.pvar ~loc obj_var in
     let methsends = List.map (fun m -> A.Exp.send ~loc obj m.Loc.txt) meths in
     obj_pat, methsends
   in
-  make_conv_of_nested_tuple ~loc ~n ~make_expr ~make_pat tyre_expr
+  make_conv_of_nested_tuple ~loc ~ids ~make_expr ~make_pat tyre_expr
 
 let make_conv_tuple ~loc n tyre_expr =
+  let gen = mk_gen "v" in
+  let ids = List.init n (fun _ -> gen ()) in
   let make_expr ~loc l = A.Exp.tuple ~loc l in
   let make_pat ~loc () =
-    let ids = List.init n (fun _ -> fresh_var ()) in
     let plids = List.map (AC.pvar ~loc) ids in
     let elids = List.map (AC.evar ~loc) ids in
     let ptuple = A.Pat.tuple ~loc plids in
     ptuple, elids
   in
-  make_conv_of_nested_tuple ~loc ~n ~make_expr ~make_pat tyre_expr
+  make_conv_of_nested_tuple ~loc ~ids ~make_expr ~make_pat tyre_expr
 
 (** Converters to/from nested either types *)
 
@@ -257,12 +257,11 @@ let rec make_match_from_nested ~loc mk_exprs matched =
   | [] -> internal_error ~loc
   | [ mk_expr ] -> mk_expr matched
   | mk_expr :: mk_exprs ->
-    let left_id = fresh_var () in
-    let right_id = fresh_var () in
-    let right_expr = make_match_from_nested ~loc mk_exprs (AC.evar right_id) in
+    let id = "v" in
+    let right_expr = make_match_from_nested ~loc mk_exprs (AC.evar id) in
     A.Exp.(match_ ~loc matched [
-        case (pleft ~loc @@ AC.pvar left_id) (mk_expr @@ AC.evar ~loc left_id) ;
-        case (pright ~loc @@ AC.pvar right_id) right_expr ;
+        case (pleft ~loc @@ AC.pvar id) (mk_expr @@ AC.evar ~loc id) ;
+        case (pright ~loc @@ AC.pvar id) right_expr ;
       ])
 
 let make_match_to_nested ~loc mk_pats matched =
@@ -276,7 +275,7 @@ let make_match_to_nested ~loc mk_pats matched =
     else nested_rights ~loc n (eleft ~loc expr)
   in
   let make_case n mk_pat =
-    let id = fresh_var () in
+    let id = "v" in
     A.Exp.case
       (mk_pat @@ AC.pvar ~loc id)
       (make_nested_either_constr ~loc n @@ AC.evar ~loc id)
@@ -292,7 +291,7 @@ let make_conv_sum ~loc captures tyre_expr =
     | Named s -> s
   in
   let branchnames = List.mapi name_from_capture captures in
-  let id = fresh_var () in
+  let id = "v" in
   let fun_to =
     let expr_branchs =
       List.map (fun {Loc.loc;txt} -> epoly ~loc txt) branchnames
@@ -360,7 +359,7 @@ let rec expr_of_regex (t : _ Regexp.t) =
   let loc = t.Loc.loc in
   match t.Loc.txt with
   | Regexp.Code r ->
-    Tyre.mkf ~loc "regex" [nolabel r]
+    Tyre.mkf ~loc "regex" [Nolabel, r]
   | Seq l ->
     let seq_item re = capture re, expr_of_regex re in
     seq_to_conv ~loc @@ List.map seq_item l
