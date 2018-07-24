@@ -120,58 +120,55 @@ let extract_re_list ~loc l =
 
 let rec collapse_ungrouped (t : string Regexp.t) =
   let loc = t.Loc.loc in
-  match t.Loc.txt with
-  | Regexp.Code e ->
-    let f = AC.evar ~loc "Re.Perl.re" in
-    let s = A.Exp.constant ~loc (A.Const.string e) in
-    Loc.mkloc (Regexp.Code (A.Exp.apply ~loc f [Nolabel, s])) loc
-  | Call lid ->
-    Loc.mkloc (Regexp.Call lid) loc
-  | Capture t ->
-    Loc.mkloc (Regexp.Capture (collapse_ungrouped t)) t.Loc.loc
-  | Capture_as (s, t) ->
-    Loc.mkloc (Regexp.Capture_as (s, collapse_ungrouped t)) t.Loc.loc
-  | Seq l ->
-    let l = flatten_seq @@ List.map collapse_ungrouped l in
-    let e = match extract_re_list ~loc l with
-      | Some r -> Regexp.Code (Re.mkfl "seq" ~loc r)
-      | None -> Regexp.Seq l
-    in
-    Loc.mkloc e t.Loc.loc
-  | Alt l ->
-    let l = flatten_alt @@ List.map collapse_ungrouped l in
-    let e = match extract_re_list ~loc l with
-      | Some r -> Regexp.Code (Re.mkfl "alt" ~loc r)
-      | None -> Regexp.Alt l
-    in
-    Loc.mkloc e t.Loc.loc
-  | Opt t ->
-    let e = match collapse_ungrouped t with
-      | {Loc.txt = Regexp.Code r; _} ->
-          Regexp.Code (Re.mkf ~loc "opt" [nolabel r])
-      | t -> Opt t
-    in
-    Loc.mkloc e t.Loc.loc
-  | Repeat ({Loc.txt = (i, j); _} as ij, t) ->
-    let e = match collapse_ungrouped t with
-      | {Loc.txt = Regexp.Code r; _} ->
-        let i = A.Exp.constant (A.Const.int i) in
-        let j =
-          match j with
-          | None -> AC.constr "None" []
-          | Some j -> AC.constr "Some" [A.Exp.constant (A.Const.int j)]
-        in
-        Regexp.Code (Re.mkf ~loc "repn" [nolabel r; nolabel i; nolabel j])
-      | t -> Repeat (ij, t)
-    in
-    Loc.mkloc e t.Loc.loc
-  | Nongreedy t ->
-    let e = match collapse_ungrouped t with
-      | {Loc.txt = Regexp.Code r; _} ->
-        Regexp.Code (Re.mkf ~loc "non_greedy" [nolabel r])
-      | t -> Nongreedy t
-    in
-    Loc.mkloc e t.Loc.loc
+  let e : _ Regexp.node = match t.Loc.txt with
+    | Regexp.Code e ->
+      let f = AC.evar ~loc "Re.Perl.re" in
+      let s = A.Exp.constant ~loc (A.Const.string e) in
+      Code (A.Exp.apply ~loc f [Nolabel, s])
+    | Call lid ->
+      Call lid
+    | Capture t ->
+      Capture (collapse_ungrouped t)
+    | Capture_as (s, t) ->
+      Capture_as (s, collapse_ungrouped t)
+    | Seq l ->
+      let l = flatten_seq @@ List.map collapse_ungrouped l in
+      begin match extract_re_list ~loc l with
+        | Some r -> Code (Re.mkfl "seq" ~loc r)
+        | None -> Seq l
+      end
+    | Alt l ->
+      let l = flatten_alt @@ List.map collapse_ungrouped l in
+      begin match extract_re_list ~loc l with
+        | Some r -> Code (Re.mkfl "alt" ~loc r)
+        | None -> Alt l
+      end
+    | Opt t ->
+      begin match collapse_ungrouped t with
+        | {Loc.txt = Code r; _} ->
+          Code (Re.mkf ~loc "opt" [nolabel r])
+        | t -> Opt t
+      end
+    | Repeat ({Loc.txt = (i, j); _} as ij, t) ->
+      begin match collapse_ungrouped t with
+        | {Loc.txt = Code r; _} ->
+          let i = A.Exp.constant (A.Const.int i) in
+          let j =
+            match j with
+            | None -> AC.constr "None" []
+            | Some j -> AC.constr "Some" [A.Exp.constant (A.Const.int j)]
+          in
+          Code (Re.mkf ~loc "repn" [nolabel r; nolabel i; nolabel j])
+        | t -> Repeat (ij, t)
+      end
+    | Nongreedy t ->
+      begin match collapse_ungrouped t with
+        | {Loc.txt = Code r; _} ->
+          Code (Re.mkf ~loc "non_greedy" [nolabel r])
+        | t -> Nongreedy t
+      end
+  in
+  Loc.mkloc e loc
 
 let simplify = collapse_ungrouped
 
