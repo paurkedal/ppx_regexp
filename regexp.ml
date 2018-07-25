@@ -107,17 +107,19 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
      | 'A'..'Z' | 'a'..'z' | '_' -> scan_cont (i + 1)
      | _ -> fail (i, i) "Expecting an identifier.")
   in
+  let rec scan_longident_cont lidr i =
+    if get i <> '.' then (i, lidr) else
+    let j, idr = scan_ident (i + 1) in
+    scan_longident_cont (Longident.Ldot (lidr, idr)) j
+  in
   let scan_longident i =
-    let rec scan_cont i lidr =
-      if get i <> '.' then (i, lidr) else
-      let j, idr = scan_ident i in
-      scan_cont j (Longident.Ldot (lidr, idr))
-    in
     let j, idr = scan_ident i in
-    scan_cont j (Longident.Lident idr)
+    scan_longident_cont (Longident.Lident idr) j
   in
   let scan_ident = with_loc scan_ident in
   let scan_longident = with_loc scan_longident in
+  let scan_longident_cont idr =
+    with_loc (scan_longident_cont (Longident.Lident idr)) in
 
   (* Non-Nested Parts *)
   let re_perl (i, j) =
@@ -253,8 +255,13 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
           if i + 1 = l then fail (i - 1, i) "Unbalanced '('." else
           (match s.[i + 1] with
            | '&' ->
-              let j, idr = scan_longident (i + 2) in
-              (j, Call idr)
+              let j, idr = scan_ident (i + 2) in
+              if get j = ':' then
+                let k, lidr = scan_longident (j + 1) in
+                (k, Capture_as (idr, wrap_loc (j + 1, k) (Call lidr)))
+              else
+                let k, lidr = scan_longident_cont idr.Location.txt j in
+                (k, Call lidr)
            | '<' ->
               let j, idr = scan_ident (i + 2) in
               if get j <> '>' then fail (i, i + 1) "Unbalanced '<'." else
