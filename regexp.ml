@@ -262,6 +262,9 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
               (k, Capture_as (idr, e))
            | ':' ->
               scan_alt (i + 2)
+           | '#' ->
+              (try (String.index_from s (i + 2) ')', Seq []) with
+               | Not_found -> fail (i - 1, i + 1) "Unterminated comment.")
            | _ ->
               fail (i, i + 2) "Invalid group modifier.")
        | '+' -> let j, e = with_loc scan_alt (i + 1) in (j, Capture e)
