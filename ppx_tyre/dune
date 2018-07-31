@@ -1,0 +1,15 @@
+(library
+  (name ppx_tyre)
+  (public_name ppx_tyre)
+  (kind ppx_rewriter)
+  (modules ppx_tyre regexp)
+  (preprocess (pps ppx_tools_versioned.metaquot_404))
+  (libraries
+    ocaml-migrate-parsetree
+    ppx_tools_versioned
+    re re.perl
+    tyre)
+  (ppx_runtime_libraries re re.perl tyre))
+
+(rule (copy ../common/regexp.mli regexp.mli))
+(rule (copy ../common/regexp.ml regexp.ml))
