@@ -8,7 +8,7 @@ homepage: "https://github.com/paurkedal/ppx_regexp"
 bug-reports: "https://github.com/paurkedal/ppx_regexp/issues"
 dev-repo: "https://github.com/paurkedal/ppx_regexp.git"
 license: "LGPL-3 with OCaml linking exception"
-build: ["dune" "build" -p name "-j" jobs]
+build: ["dune" "build" "-p" name "-j" jobs]
 depends: [
   "dune" {build}
   "ocaml-migrate-parsetree"
