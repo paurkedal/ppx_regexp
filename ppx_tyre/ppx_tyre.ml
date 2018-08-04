@@ -400,7 +400,7 @@ let rec regexp_of_pattern pat =
   let re = match pat.ppat_desc with
     | Ppat_constant (Pconst_string (s, delim)) ->
       let pos = adjust_position ~loc delim in
-      Regexp.(Capture (parse_exn ~pos s))
+      (Regexp.parse_exn ~pos s).txt
     | Ppat_alias (pat, s) ->
       Regexp.(Capture_as (s, regexp_of_pattern pat))
     | Ppat_or (pat1, pat2) ->
@@ -417,7 +417,14 @@ let rec regexp_of_pattern pat =
 
 let expr_of_pattern pat =
   let re = simplify @@ regexp_of_pattern pat in
-  capture re, expr_of_regex @@ re
+  match re.txt with
+  | Seq l ->
+    let f_item re = capture re, expr_of_regex re in
+    let capture_seq, expr = seq_to_expr ~loc:re.loc @@ List.map f_item l in
+    capture_seq, expr
+  | _ ->
+    capture_singleton (capture re), expr_of_regex re
+
 
 let expr_of_function ~loc l =
   let err_on_guard = function
@@ -430,10 +437,12 @@ let expr_of_function ~loc l =
     err_on_guard pc_guard;
     let loc = pc_lhs.ppat_loc in
     let capture, re = expr_of_pattern pc_lhs in
+    let pvar_of_lid {Loc.loc; txt} = AC.pvar ~loc txt in
     let arg = match capture with
-      | No -> A.Pat.any ~loc ()
-      | Named {loc; txt} -> AC.pvar ~loc txt
-      | Unnamed () -> A.Pat.any ~loc ()
+      | Named [] | Unnamed 0 -> internal_error ~loc
+      | No | Unnamed _ -> A.Pat.any ~loc ()
+      | Named [lid] -> pvar_of_lid lid
+      | Named l -> AC.ptuple ~loc @@ List.map pvar_of_lid l 
     in
     let e = AC.func ~loc [arg, pc_rhs] in
     AC.constr ~loc "Tyre.Route" [re; e]
