@@ -405,6 +405,10 @@ let rec regexp_of_pattern pat =
       Regexp.(Capture_as (s, regexp_of_pattern pat))
     | Ppat_or (pat1, pat2) ->
       Regexp.(Alt [ regexp_of_pattern pat1 ; regexp_of_pattern pat2 ])
+    | Ppat_any ->
+      Regexp.Code ".*"
+    | Ppat_var id ->
+      Regexp.(Capture_as (id, {loc; txt = Code ".*"}))
     | _ ->
       Loc.raise_errorf ~loc
         "This pattern is not a valid tyre pattern."
