@@ -16,11 +16,11 @@ expressed in a slightly extended subset of PCRE.  The interpretations are:
 
 - `re?` extracts an option of what `re` extracts.
 - `re+`, `re*`, `re{n,m}` extracts a list of what `re` extracts.
-- `(?@qname)` refers to a named `[%tyre ...]` expression bound to a possibly
-  module-qualified identifier `qname`.
+- `(?@qname)` refers to any identifier bound to a typed regular expression
+  of type `'a Tyre.t`.
 - One or more `(?<v>re)` in a sequence extracts an object where each method
   `v` is bound to what `re` extracts.
 - An alternative with one `(?<v>re)` per branch extracts a polymorphic
   variant where each constructor `` `v`` receives what `re` extracts as its
   argument.
-- `(?@v:qname)` is a shortcut for `(?<v>(?&qname))`.
+- `(?&v:qname)` is a shortcut for `(?<v>(?&qname))`.
