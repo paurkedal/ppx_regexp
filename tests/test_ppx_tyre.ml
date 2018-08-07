@@ -49,19 +49,19 @@ let () =
   assert (test1 %% "%%%@" = `Even_sigils (Some "%%%@"));
   assert (test1 %% "%%@" = `Odd_sigils)
 
-let concat_gen sep gen =
-  let rec f () =
-    match gen () with
-    | None -> ""
-    | Some s -> s ^ sep ^ f ()
+let concat_seq sep seq =
+  let rec f seq =
+    match seq () with
+    | Seq.Nil -> ""
+    | Cons (s,seq) -> s ^ sep ^ f seq
   in
-  f ()
+  f seq
 
 let test2 = function%tyre
   | {|^<>$|} -> (=) "<>"
   | {|^<(?<x>[^<>]+)>$|} -> fun s -> s = "<" ^ x ^ ">"
   | {|^<(?<x>[^<>]+)><(?<y>[^<>]+)>$|} -> fun s -> s = "<" ^ x ^ "><" ^ y ^ ">"
-  | {|^((?<elt>[^;<>]);)*$|} -> fun s -> concat_gen ";" elt = s
+  | {|^((?<elt>[^;<>]);)*$|} -> fun s -> concat_seq ";" elt = s
   | {|^(?<a>one)|(?<b>two)$|} as x ->
     (match x with
      | `a a -> fun s -> a = s && a = "one"

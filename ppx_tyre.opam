@@ -14,7 +14,7 @@ depends: [
   "ocaml-migrate-parsetree"
   "re" {>= "1.7.1"}
   "ppx_tools_versioned"
-  "tyre"
+  "tyre" {>= "0.4.1"}
   "qcheck" {test}
 ]
 available: [ocaml-version >= "4.02.3"]
