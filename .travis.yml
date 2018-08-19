@@ -15,4 +15,4 @@ before_install:
   - docker pull $IMAGE_NAME
 
 script:
-  - docker run --privileged -v `pwd`:/mnt:ro $IMAGE_NAME /mnt/pkg/.travis.sh
+  - docker run --privileged -v `pwd`:/mnt:ro $IMAGE_NAME /mnt/.travis.sh
