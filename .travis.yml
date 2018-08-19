@@ -1,0 +1,18 @@
+language: c
+sudo: required
+
+services:
+  - docker
+
+env:
+  matrix:
+    - IMAGE_NAME=ocaml/opam:alpine_ocaml-4.02.3         PKG_NAME=ppx_regexp
+    - IMAGE_NAME=ocaml/opam:alpine_ocaml-4.02.3         PKG_NAME=ppx_tyre
+    - IMAGE_NAME=ocaml/opam:alpine_ocaml-4.07.0_flambda PKG_NAME=ppx_regexp
+    - IMAGE_NAME=ocaml/opam:alpine_ocaml-4.07.0_flambda PKG_NAME=ppx_tyre
+
+before_install:
+  - docker pull $IMAGE_NAME
+
+script:
+  - docker run --privileged -v `pwd`:/mnt:ro $IMAGE_NAME /mnt/pkg/.travis.sh
