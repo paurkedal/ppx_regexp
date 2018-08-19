@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/paurkedal/ppx_regexp.svg?branch=master)](https://travis-ci.org/paurkedal/ppx_compose)
+
 `ppx_regexp` - Matching Regular Expressions with OCaml Patterns
 ---------------------------------------------------------------
 
