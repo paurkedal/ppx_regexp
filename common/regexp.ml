@@ -172,6 +172,9 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
     (match get j with
      | ',' ->
         let j, n_max = scan_int_opt (j + 1) in
+        (match n_max with
+         | Some n_max when n_max < n_min -> fail (i, j) "Reversed repeat range."
+         | _ -> ());
         (j, n_min, n_max)
      | _ ->
         (j, n_min, (Some n_min)))
