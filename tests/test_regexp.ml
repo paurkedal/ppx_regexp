@@ -173,6 +173,27 @@ module Regexp = struct
     Format.fprintf ppf " => %S" (to_string e);
     Format.pp_print_flush ppf ();
     Buffer.contents buf
+
+  let rec to_re e =
+    (match e.Loc.txt with
+     | Code re -> Re.Perl.re re
+     | Seq es -> Re.seq (List.map to_re es)
+     | Alt es -> Re.alt (List.map to_re es)
+     | Opt e -> Re.opt (to_re e)
+     | Repeat ({Loc.txt = (i, j); _}, e) -> Re.repn (to_re e) i j
+     | Nongreedy e -> Re.non_greedy (to_re e)
+     | Capture e -> Re.group (to_re e)
+     | Capture_as (_, e) -> Re.group (to_re e)
+     | Call _ -> raise Re.Perl.Not_supported)
+
+  let rec has_anon_capture e =
+    (match e.Loc.txt with
+     | Code _ | Call _ -> false
+     | Seq es | Alt es -> List.exists has_anon_capture es
+     | Opt e | Repeat (_, e) | Capture_as (_, e) | Nongreedy e ->
+        has_anon_capture e
+     | Capture _ -> true)
+
 end
 
 let gen_name =
@@ -252,17 +273,47 @@ let shrink_regexp =
 let arb_regexp =
   Q.make ~print:Regexp.show_debug ~shrink:shrink_regexp gen_regexp
 
+let test_parse s =
+  let r =
+    (match Regexp.parse_exn s with
+     | exception Location.Error err -> Error err
+     | e ->
+        Ok (e,
+          (try Ok (Regexp.to_re e) with
+           | Re.Perl.Parse_error -> Error `Parse_error
+           | Re.Perl.Not_supported -> Error `Not_supported)))
+  in
+  let r' =
+    try Ok (Re.Perl.re s) with
+     | Re.Perl.Parse_error -> Error `Parse_error
+     | Re.Perl.Not_supported -> Error `Not_supported
+  in
+  (match r, r' with
+   | (Error _ | Ok (_, Error _)),       Error _ -> true
+   | Ok _,                              Error `Not_supported -> true
+   | Ok (e, Ok _),                      Error `Parse_error ->
+      if Regexp.has_anon_capture e then true else
+      Q.Test.fail_reportf "Parsed to %a and converted to Re.t, \
+                           but should be invalid" Regexp.pp_debug e
+   | Error err,                         Ok _ ->
+      Q.Test.fail_reportf "Failed to parse valid %s: %a" s
+          Location.report_error err
+   | Ok (e, Error _),                   Ok _ ->
+      Q.Test.fail_reportf "Parsed to %a but conversion to Re.t failed"
+        Regexp.pp_debug e
+   | Ok (_, Ok _),                      Ok _ ->
+      (* TODO: Would have been nice to compare the two Re.t here. *)
+      true)
+
 let tests = [
-  Q.Test.make ~name:"parse ∘ to_string" arb_regexp
+  Q.Test.make ~long_factor:100 ~name:"parse ∘ to_string" arb_regexp
     (fun e ->
       (match Regexp.parse_exn (Regexp.to_string e) with
        | exception Location.Error err ->
           Q.Test.fail_reportf "%a" Location.report_error err
        | e' -> Regexp.equal e' e));
-  (* TODO:
-   * - `to_string ∘ parse`: An arbitrary string will not be canonical, but even
-   *   controlled generation should add coverage compared to the above identity.
-   * - Compare to PCRE. *)
+  Q.Test.make ~long_factor:100 ~name:"to_string ∘ parse"
+    (Q.string_gen Q.Gen.printable) test_parse;
 ]
 
 let () = QCheck_runner.run_tests_main tests
