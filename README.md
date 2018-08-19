@@ -66,24 +66,72 @@ end
 
 ## `ppx_tyre` - Syntax Support for Tyre Routes
 
+### Typed regular expressions
+
 This PPX compiles
 ```ocaml
-    [%tyre {|re|}]
+[%tyre {|re|}]
 ```
-into `'a Tyre.t` and
+into `'a Tyre.t`.
+
+For instance, We can define a pattern that recognize strings of the form "dim:3x5" like so:
+
+```ocaml
+# open Tyre ;;
+# let dim = [%tyre "dim:(?&int)x(?&int)"] ;;
+val dim : (int * int) Tyre.t
+```
+
+The syntax `(?&id)` allows to call a typed regular expression named `id` of type `'a Tyre.t`, such as `Tyre.int`.
+
+For convenience, you can also use *named* capture groups to name the captured elements.
+```ocaml
+# let dim = [%tyre "dim:(?<x>(?&int))x(?&y:int)"] ;;
+val dim : < x : int; y : int > Tyre.t
+```
+
+Names given using the syntax `(?<foo>re)` will be used for the fields
+of the results. `(?&y:int)` is a shortcut for `(?<x>(?&int))`.
+This can also be used for alternatives, for instance:
+
+```ocaml
+# let id_or_name = [%tyre "id:(?&id:int)|name:(?<name>[:alpha:]+)"] ;;
+val id_or_name : [ `id of int | `name of string ] Tyre.t
+```
+
+Expressions of type `Tyre.t` can then be composed as part of bigger regular
+expressions, or compiled with `Tyre.compile`. 
+See [tyre][]'s documentation for details.
+
+### Routes
+
+`ppx_tyre` can also be used for routing, in the style of `ppx_regexp`:
+
 ```ocaml
     function%tyre
-    | {|re1|} as x1 -> e1
+    | {|re1|} -> e1
     ...
-    | {|reN|} as x2 -> eN
+    | {|reN|} -> eN
 ```
-into `'a Type.route`, where `re`, `re1`, ... are regular expressions
-expressed in a slightly extended subset of PCRE.  The interpretations are:
+
+is turned into a `'a Type.route`, where `re`, `re1`, ... are regular expressions
+using the same syntax as above. `"re" as v` is considered like `(?<v>re)` and
+`"re1" | "re2"` is turned into a regular expression alternative.
+
+Once routes are defined, matching is done with `Tyre.exec`.
+
+### Details
+
+The syntax follow Perl's syntax:
 
 - `re?` extracts an option of what `re` extracts.
 - `re+`, `re*`, `re{n,m}` extracts a list of what `re` extracts.
-- `(?@qname)` refers to any identifier bound to a typed regular expression
+- `(?&qname)` refers to any identifier bound to a typed regular expression
   of type `'a Tyre.t`.
+- Normal parens are *non-capturing*.
+- There are two ways to capture:
+  - Anonymous capture `(+re)`
+  - Named capture `(?<v>re)`
 - One or more `(?<v>re)` at the top level can be used to bind variables
   instead of `as ...`.
 - One or more `(?<v>re)` in a sequence extracts an object where each method
