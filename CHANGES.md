@@ -1,5 +1,3 @@
-# Changes
-
 ## v0.4.0 - 2018-08-20
 
 - Switched to internal regexp parser.
