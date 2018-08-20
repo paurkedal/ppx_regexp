@@ -5,10 +5,9 @@
 This repo provides two PPXes providing regular expression-based routing:
 
 - `ppx_regexp` maps to [re][] with the conventional last-match extraction
-  into `string` and `string option`.  It works directly on strings.
+  into `string` and `string option`.
 - `ppx_tyre` maps to [Tyre][tyre] providing typed extraction into options,
-  lists, tuples, objects, and polymorphic variants.  It defines `Tyre.t` and
-  `Tyre.route` values.
+  lists, tuples, objects, and polymorphic variants.
 
 Another difference is that `ppx_regexp` works directly on strings
 essentially hiding the library calls, while `ppx_tyre` provides `Tyre.t` and

@@ -1,11 +1,11 @@
 # Changes
 
-## v0.4.0
+## v0.4.0 - 2018-08-20
 
 - Switched to internal regexp parser.
 - Added syntax extension for `tyre` (Gabriel Radanne).
 - Fixed type of captures under alternatives for `%pcre`.
-- Improved error reporting with locations.
+- Better error reporting, including locations.
 - The PPX now declares its runtime libraries.
 
 ## v0.3.2 - 2018-03-01
