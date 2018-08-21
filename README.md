@@ -94,7 +94,7 @@ of the results. `(?&y:int)` is a shortcut for `(?<x>(?&int))`.
 This can also be used for alternatives, for instance:
 
 ```ocaml
-# let id_or_name = [%tyre "id:(?&id:int)|name:(?<name>[:alpha:]+)"] ;;
+# let id_or_name = [%tyre "id:(?&id:int)|name:(?<name>[[:alnum:]]+)"] ;;
 val id_or_name : [ `id of int | `name of string ] Tyre.t
 ```
 
