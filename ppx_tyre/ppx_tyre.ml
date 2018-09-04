@@ -188,10 +188,10 @@ let simplify = collapse_ungrouped
 let rec make_nested_tuple_pat ~loc ids =
   match ids with
   | [] -> internal_error ~loc
-  | [ v ] -> [v], AC.pvar ~loc v
+  | [ v ] -> AC.pvar ~loc v
   | v :: ids -> 
-    let vars, pat = make_nested_tuple_pat ~loc ids in
-    (v :: vars), A.Pat.tuple ~loc [AC.pvar ~loc v;pat]
+    let pat = make_nested_tuple_pat ~loc ids in
+    A.Pat.tuple ~loc [AC.pvar ~loc v;pat]
 let rec make_nested_tuple_expr ~loc exprs =
   match exprs with
   | [] -> internal_error ~loc
@@ -216,8 +216,8 @@ let make_object_expr ~loc expr meths =
 
 let make_conv_of_nested_tuple ~loc ~make_pat ~make_expr ~ids tyre_expr =
   let fun_to =
-    let vars, tuple_pat = make_nested_tuple_pat ~loc ids in
-    let lids = List.map (AC.evar ~loc) vars in
+    let tuple_pat = make_nested_tuple_pat ~loc ids in
+    let lids = List.map (AC.evar ~loc) ids in
     let expr = make_expr ~loc lids in
     A.Exp.fun_ ~loc Nolabel None tuple_pat expr
   in
@@ -442,7 +442,8 @@ let expr_of_function ~loc l =
       | Named [] | Unnamed 0 -> internal_error ~loc
       | No | Unnamed _ -> A.Pat.any ~loc ()
       | Named [lid] -> pvar_of_lid lid
-      | Named l -> AC.ptuple ~loc @@ List.map pvar_of_lid l 
+      | Named l ->
+        make_nested_tuple_pat ~loc @@ List.map (fun {Loc.txt ; _} -> txt) l
     in
     let e = AC.func ~loc [arg, pc_rhs] in
     AC.constr ~loc "Tyre.Route" [re; e]
