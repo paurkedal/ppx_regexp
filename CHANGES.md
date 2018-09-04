@@ -1,3 +1,7 @@
+## v0.4.1 - 2018-09-04
+
+- Fix multi-group top level regexp for `ppx_tyre`.
+
 ## v0.4.0 - 2018-08-20
 
 - Switched to internal regexp parser.
