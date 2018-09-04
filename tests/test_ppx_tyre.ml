@@ -32,6 +32,7 @@ type t = [
   | `Comment of string
   | `Even_sigils of string option
   | `Odd_sigils
+  | `Id of string * int * string
   | `Unknown ]
 
 let test1 : t Tyre.re =
@@ -40,6 +41,8 @@ let test1 : t Tyre.re =
    | {|^# (?<comment>.+)$|} -> `Comment comment
    | {|^(?<sigil>([@%]{2})+)?$|} -> `Even_sigils sigil
    | {|^[@%]|} -> `Odd_sigils
+   | {|^(?<id>[a-z]+)(?&num:Tyre.pos_int)(?<sym>[^[:alnum:]]+)$|}
+     -> `Id (id, num, sym)
    | _ -> `Unknown)
 
 let () =
@@ -47,7 +50,8 @@ let () =
   assert (test1 %% "# Kommentar" = `Comment "Kommentar");
   assert (test1 %% "" = `Even_sigils None);
   assert (test1 %% "%%%@" = `Even_sigils (Some "%%%@"));
-  assert (test1 %% "%%@" = `Odd_sigils)
+  assert (test1 %% "%%@" = `Odd_sigils);
+  assert (test1 %% "abc42#@" = `Id ("abc", 42, "#@"))
 
 let concat_seq sep seq =
   let rec f seq =
