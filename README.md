@@ -90,7 +90,7 @@ val dim : < x : int; y : int > Tyre.t
 ```
 
 Names given using the syntax `(?<foo>re)` will be used for the fields
-of the results. `(?&y:int)` is a shortcut for `(?<x>(?&int))`.
+of the results. `(?&y:int)` is a shortcut for `(?<y>(?&int))`.
 This can also be used for alternatives, for instance:
 
 ```ocaml
