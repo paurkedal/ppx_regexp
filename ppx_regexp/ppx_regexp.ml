@@ -93,7 +93,11 @@ module Regexp = struct
        | Capture_as (_, e) -> "(" ^ recurse p_alt e ^ ")"
        | Call _ -> error ~loc "(&...) is not implemented for %pcre.")
     in
-    recurse 0
+    (function
+     | {Location.txt = Capture_as (_, e); _} ->
+        recurse 0 e
+     | e ->
+        recurse 0 e)
 end
 
 let dyn_bindings = ref []
