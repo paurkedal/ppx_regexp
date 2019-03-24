@@ -1,3 +1,7 @@
+## v0.4.2 - 2019-03-24
+
+- Fix top level group elimination for `ppx_regexp` (#8).
+
 ## v0.4.1 - 2018-09-04
 
 - Fix multi-group top level regexp for `ppx_tyre`.
