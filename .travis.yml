@@ -6,10 +6,16 @@ services:
 
 env:
   matrix:
-    - IMAGE_NAME=ocaml/opam2:4.03 PKG_NAME=ppx_regexp
-    - IMAGE_NAME=ocaml/opam2:4.06 PKG_NAME=ppx_tyre
+    - IMAGE_NAME=ocaml/opam2:4.02 PKG_NAME=ppx_regexp
+    - IMAGE_NAME=ocaml/opam2:4.02 PKG_NAME=ppx_tyre
+    - IMAGE_NAME=ocaml/opam2:4.04 PKG_NAME=ppx_regexp
+    - IMAGE_NAME=ocaml/opam2:4.04 PKG_NAME=ppx_tyre
     - IMAGE_NAME=ocaml/opam2:4.07 PKG_NAME=ppx_regexp
     - IMAGE_NAME=ocaml/opam2:4.07 PKG_NAME=ppx_tyre
+    - IMAGE_NAME=ocaml/opam2:4.08 PKG_NAME=ppx_regexp
+    - IMAGE_NAME=ocaml/opam2:4.08 PKG_NAME=ppx_tyre
+    - IMAGE_NAME=ocaml/opam2:4.09 PKG_NAME=ppx_regexp
+    - IMAGE_NAME=ocaml/opam2:4.09 PKG_NAME=ppx_tyre
 
 before_install:
   - docker pull $IMAGE_NAME

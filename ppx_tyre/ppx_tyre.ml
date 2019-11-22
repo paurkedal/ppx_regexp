@@ -23,6 +23,13 @@ module AC = Ast_convenience_404
 module A = Ast_helper
 module Loc = Location
 
+module List = struct
+  include List
+  let init n f = (* for compatibility with OCaml < 4.6.0 *)
+    let rec loop acc i = if i < 0 then acc else loop (f i :: acc) (i - 1) in
+    loop [] (n - 1)
+end
+
 let internal_error ~loc = Loc.raise_errorf ~loc "Internal error@."
 
 let mk_gen s = 
