@@ -3,7 +3,7 @@
   (public_name ppx_regexp)
   (kind ppx_rewriter)
   (modules ppx_regexp regexp)
-  (preprocess (pps ppx_tools_versioned.metaquot_404))
+  (preprocess (pps ppx_tools_versioned.metaquot_409))
   (libraries
     ocaml-migrate-parsetree
     ppx_tools_versioned
