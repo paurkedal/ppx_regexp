@@ -148,7 +148,7 @@ let rec wrap_group_bindings ~loc rhs offG = function
       let [%p Pat.var varG] = [%e eG] in
       [%e wrap_group_bindings ~loc rhs offG bs]]
 
-let transform_cases ~loc cases =
+let transform_cases ~mapper ~loc cases =
   let aux case =
     if case.pc_guard <> None then
       error ~loc "Guards are not implemented for match%pcre." else
@@ -176,8 +176,9 @@ let transform_cases ~loc cases =
      | {ppat_loc = loc; _} ->
         error ~loc "Regular expression pattern should be a string.")
   in
+  let rewrite_case case = {case with pc_rhs = mapper.expr mapper case.pc_rhs} in
   let cases, default_rhs =
-    (match List.rev cases with
+    (match List.rev_map rewrite_case cases with
      | {pc_lhs = {ppat_desc = Ppat_any; _}; pc_rhs; pc_guard = None} :: cases ->
         (cases, pc_rhs)
      | {pc_lhs = {ppat_desc = Ppat_var var; _}; pc_rhs; pc_guard = None} ::
@@ -226,17 +227,20 @@ let rewrite_expr mapper e_ext =
       let loc = e.pexp_loc in
       (match e.pexp_desc with
        | Pexp_match (e, cases) ->
-          [%expr let _ppx_regexp_v = [%e e] in [%e transform_cases ~loc cases]]
+          [%expr
+            let _ppx_regexp_v = [%e e] in
+            [%e transform_cases ~mapper ~loc cases]]
        | Pexp_function (cases) ->
-          [%expr fun _ppx_regexp_v -> [%e transform_cases ~loc cases]]
+          [%expr
+            fun _ppx_regexp_v ->
+            [%e transform_cases ~mapper ~loc cases]]
        | _ ->
           error ~loc "[%pcre] only applies to match an function.")
    | _ -> default_mapper.expr mapper e_ext)
 
 let rewrite_structure _mapper sis =
-  let sis' =
-    default_mapper.structure {default_mapper with expr = rewrite_expr} sis
-  in
+  let mapper = {default_mapper with expr = rewrite_expr} in
+  let sis' = default_mapper.structure mapper sis in
   (match get_bindings () |> List.rev with
    | [] -> sis'
    | bindings ->
@@ -254,4 +258,5 @@ let rewrite_structure _mapper sis =
       local_sis @ sis')
 
 let () = Driver.register ~name:"ppx_regexp" ocaml_version
-  (fun _config _cookies -> {default_mapper with structure = rewrite_structure})
+  (fun _config _cookies ->
+    {default_mapper with structure = rewrite_structure; expr = rewrite_expr})

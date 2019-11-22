@@ -66,6 +66,16 @@ let test4 = function%pcre (* Issue 8 *)
  | {|(?<x>(abc))[[:space:]]*(?<y>(xyz))|} -> [x; y]
  | _ -> assert false
 
+let test5 = function%pcre
+ | {|^.(?<x>.+)|} ->
+    (match%pcre x with
+     | {|^.(?<y>.+)|} ->
+        (match%pcre y with
+         | {|^.(?<z>.+)|} -> (x, y, z)
+         | _ -> assert false)
+     | _ -> assert false)
+ | _ -> assert false
+
 let () =
   test2 "<>";
   test2 "<a>";
@@ -81,7 +91,8 @@ let () =
   test3 "- + &nbsp; + -";
   test3 "catch-all";
   assert (test4 "::123.456::" = ["123.456"]);
-  assert (test4 "::abc xyz::" = ["abc"; "xyz"])
+  assert (test4 "::abc xyz::" = ["abc"; "xyz"]);
+  assert (test5 "abcd" = ("bcd", "cd", "d"))
 
 (* It should work in a functor, and Re_pcre.regxp should be lifted to the
  * top-level. *)
