@@ -163,7 +163,7 @@ file bug reports in the GitHub issue tracker.  Any exception raised by
 generated code except for `Match_failure` is a bug.
 
 
-[ci]: https://travis-ci.org/paurkedal/ppx_compose
+[ci]: https://travis-ci.org/paurkedal/ppx_regexp
 [ci-build-status]: https://travis-ci.org/paurkedal/ppx_regexp.svg?branch=master
 [re]: https://github.com/ocaml/ocaml-re
 [tyre]: https://github.com/Drup/tyre
