@@ -1,3 +1,9 @@
+## v0.4.3 - 2019-11-25
+
+- Fixed nested `[%pcre]` usage for `ppx_regexp`.
+- Extended compiler support to 4.02.3 up to 4.09.0 (at least) for both PPXes.
+- Upgrade to AST 4.09 to support newer compiler features.
+
 ## v0.4.2 - 2019-03-24
 
 - Fix top level group elimination for `ppx_regexp` (#8).
