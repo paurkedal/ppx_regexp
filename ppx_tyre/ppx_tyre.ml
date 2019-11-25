@@ -16,12 +16,19 @@
 
 
 open Migrate_parsetree
-open Ast_404
-let ocaml_version = Versions.ocaml_404
-module AC = Ast_convenience_404
+open Ast_409
+let ocaml_version = Versions.ocaml_409
+module AC = Ast_convenience_409
 
 module A = Ast_helper
 module Loc = Location
+
+module List = struct
+  include List
+  let init n f = (* for compatibility with OCaml < 4.6.0 *)
+    let rec loop acc i = if i < 0 then acc else loop (f i :: acc) (i - 1) in
+    loop [] (n - 1)
+end
 
 let internal_error ~loc = Loc.raise_errorf ~loc "Internal error@."
 
@@ -238,7 +245,7 @@ let make_conv_object ~loc meths tyre_expr =
   let make_pat ~loc () =
     let obj = AC.evar ~loc obj_var in
     let obj_pat = AC.pvar ~loc obj_var in
-    let methsends = List.map (fun m -> A.Exp.send ~loc obj m.Loc.txt) meths in
+    let methsends = List.map (fun m -> A.Exp.send ~loc obj m) meths in
     obj_pat, methsends
   in
   make_conv_of_nested_tuple ~loc ~ids ~make_expr ~make_pat tyre_expr

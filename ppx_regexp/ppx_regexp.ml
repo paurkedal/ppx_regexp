@@ -15,8 +15,8 @@
  *)
 
 open Migrate_parsetree
-open Ast_404
-let ocaml_version = Versions.ocaml_404
+open Ast_409
+let ocaml_version = Versions.ocaml_409
 
 open Ast_mapper
 open Ast_helper
@@ -30,7 +30,7 @@ let error ~loc msg = raise (Location.Error (Location.error ~loc msg))
 let warn ~loc msg e =
   let e_msg = Exp.constant (Const.string msg) in
   let structure = {pstr_desc = Pstr_eval (e_msg, []); pstr_loc = loc} in
-  Exp.attr e ({txt = "ocaml.ppwarning"; loc}, PStr [structure])
+  Exp.attr e (Attr.mk ~loc {txt = "ocaml.ppwarning"; loc} (PStr [structure]))
 
 module List = struct
   include List

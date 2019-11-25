@@ -15,17 +15,26 @@
  *)
 
 open Printf
-module Loc = Location
+module Loc = Migrate_parsetree.Ast_409.Location
 module Q = QCheck
 
 let mkloc = Loc.mkloc
 let mknoloc = Loc.mknoloc
 let map_loc f {Loc.txt = x; loc} = {Loc.txt = f x; loc}
 
+(* Dummy implementation for compatibility with OCaml < 4.8.0, comment out the
+ * real version if needed. *)
+let pp_location_error ppf _ = Format.pp_print_string ppf "parse error"
+(*
+let pp_location_error = Loc.print_report
+*)
+
+type ('a,'b) result = Ok of 'a | Error of 'b
+
 module Regexp = struct
   include Regexp
 
-  let nonepsilon = function {Location.txt = Seq []; _} -> false | _ -> true
+  let nonepsilon = function {Loc.txt = Seq []; _} -> false | _ -> true
 
   let rec collect_code = function
    | {Loc.txt = Code s1; loc = loc1} :: {Loc.txt = Code s2; loc = loc2} :: es ->
@@ -121,14 +130,14 @@ module Regexp = struct
   let rec pp_debug ppf self =
     let open Regexp in
     let open Format in
-    let open Location in
+    let open Loc in
 
     let pp_pos ppf pos =
       let open Lexing in
       Format.fprintf ppf "%d:%d" pos.pos_lnum (pos.pos_cnum - pos.pos_bol)
     in
     let pp_loc ppf loc =
-      let open Location in
+      let open Loc in
       let open Lexing in
       if loc <> none then begin
         if loc.loc_start.pos_lnum = loc.loc_end.pos_lnum then
@@ -276,7 +285,7 @@ let arb_regexp =
 let test_parse s =
   let r =
     (match Regexp.parse_exn s with
-     | exception Location.Error err -> Error err
+     | exception Loc.Error err -> Error err
      | e ->
         Ok (e,
           (try Ok (Regexp.to_re e) with
@@ -297,7 +306,7 @@ let test_parse s =
                            but should be invalid" Regexp.pp_debug e
    | Error err,                         Ok _ ->
       Q.Test.fail_reportf "Failed to parse valid %s: %a" s
-          Location.report_error err
+        pp_location_error err
    | Ok (e, Error _),                   Ok _ ->
       Q.Test.fail_reportf "Parsed to %a but conversion to Re.t failed"
         Regexp.pp_debug e
@@ -309,8 +318,8 @@ let tests = [
   Q.Test.make ~long_factor:100 ~name:"parse ∘ to_string" arb_regexp
     (fun e ->
       (match Regexp.parse_exn (Regexp.to_string e) with
-       | exception Location.Error err ->
-          Q.Test.fail_reportf "%a" Location.report_error err
+       | exception Loc.Error err ->
+          Q.Test.fail_reportf "%a" pp_location_error err
        | e' -> Regexp.equal e' e));
   Q.Test.make ~long_factor:100 ~name:"to_string ∘ parse"
     (Q.string_gen Q.Gen.printable) test_parse;
