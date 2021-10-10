@@ -3,7 +3,7 @@
 (test
   (name test_regexp)
   (modules regexp test_regexp)
-  (libraries ocaml-migrate-parsetree qcheck re re.perl))
+  (libraries ppxlib qcheck re re.perl))
 (rule (copy ../common/regexp.mli regexp.mli))
 (rule (copy ../common/regexp.ml regexp.ml))
 

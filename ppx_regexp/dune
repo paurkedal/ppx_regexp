@@ -3,11 +3,8 @@
   (public_name ppx_regexp)
   (kind ppx_rewriter)
   (modules ppx_regexp regexp)
-  (preprocess (pps ppx_tools_versioned.metaquot_409))
-  (libraries
-    ocaml-migrate-parsetree
-    ppx_tools_versioned
-    re re.perl)
+  (preprocess (pps ppxlib.metaquot))
+  (libraries ppxlib re re.perl)
   (ppx_runtime_libraries re re.perl))
 
 (rule (copy ../common/regexp.mli regexp.mli))

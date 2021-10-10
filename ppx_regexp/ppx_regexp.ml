@@ -1,4 +1,4 @@
-(* Copyright (C) 2017  Petter A. Urkedal <paurkedal@gmail.com>
+(* Copyright (C) 2017--2021  Petter A. Urkedal <paurkedal@gmail.com>
  *
  * This library is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published by
@@ -14,23 +14,16 @@
  * along with this library.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
-open Migrate_parsetree
-open Ast_409
-let ocaml_version = Versions.ocaml_409
+open Ppxlib
+open Ast_builder.Default
 
-open Ast_mapper
-open Ast_helper
-open Asttypes
-open Longident
-open Parsetree
-open Printf
-
-let error ~loc msg = raise (Location.Error (Location.error ~loc msg))
+let error = Location.raise_errorf
 
 let warn ~loc msg e =
-  let e_msg = Exp.constant (Const.string msg) in
-  let structure = {pstr_desc = Pstr_eval (e_msg, []); pstr_loc = loc} in
-  Exp.attr e (Attr.mk ~loc {txt = "ocaml.ppwarning"; loc} (PStr [structure]))
+  let e_msg = estring ~loc msg in
+  let name = {txt = "ocaml.ppwarning"; loc} in
+  let payload = PStr [{pstr_desc = Pstr_eval (e_msg, []); pstr_loc = loc}] in
+  {e with pexp_attributes = attribute ~loc ~name ~payload :: e.pexp_attributes}
 
 module List = struct
   include List
@@ -54,11 +47,11 @@ module Regexp = struct
        | Repeat ({Location.txt = (i, _); _}, e) ->
           recurse (must_match && i > 0) e
        | Nongreedy e -> recurse must_match e
-       | Capture _ -> error ~loc "Unnamed capture is not allowed for %pcre."
+       | Capture _ -> error ~loc "Unnamed capture is not allowed for %%pcre."
        | Capture_as (idr, e) ->
           fun (nG, bs) ->
             recurse must_match e (nG + 1, (idr, Some nG, must_match) :: bs)
-       | Call _ -> error ~loc "(&...) is not implemented for %pcre.")
+       | Call _ -> error ~loc "(&...) is not implemented for %%pcre.")
     in
     (function
      | {Location.txt = Capture_as (idr, e); _} ->
@@ -87,11 +80,11 @@ module Regexp = struct
        | Repeat ({Location.txt = (i, j_opt); _}, e) ->
           let j_str = match j_opt with None -> "" | Some j -> string_of_int j in
           delimit_if (p > p_suffix)
-            (sprintf "%s{%d,%s}" (recurse p_atom e) i j_str)
+            (Printf.sprintf "%s{%d,%s}" (recurse p_atom e) i j_str)
        | Nongreedy e -> recurse p_suffix e ^ "?"
-       | Capture _ -> error ~loc "Unnamed capture is not allowed for %pcre."
+       | Capture _ -> error ~loc "Unnamed capture is not allowed for %%pcre."
        | Capture_as (_, e) -> "(" ^ recurse p_alt e ^ ")"
-       | Call _ -> error ~loc "(&...) is not implemented for %pcre.")
+       | Call _ -> error ~loc "(&...) is not implemented for %%pcre.")
     in
     (function
      | {Location.txt = Capture_as (_, e); _} ->
@@ -99,11 +92,6 @@ module Regexp = struct
      | e ->
         recurse 0 e)
 end
-
-let dyn_bindings = ref []
-let clear_bindings () = dyn_bindings := []
-let add_binding binding = dyn_bindings := binding :: !dyn_bindings
-let get_bindings () = !dyn_bindings
 
 let fresh_var =
   let c = ref 0 in
@@ -129,7 +117,8 @@ let extract_bindings ~pos s =
   let r = Regexp.parse_exn ~pos s in
   let nG, bs = Regexp.bindings r in
   let re_str = Regexp.to_string r in
-  (Exp.constant (Const.string re_str), bs, nG)
+  let loc = Location.none in
+  (estring ~loc re_str, bs, nG)
 
 let rec wrap_group_bindings ~loc rhs offG = function
  | [] -> rhs
@@ -138,22 +127,22 @@ let rec wrap_group_bindings ~loc rhs offG = function
      | None ->
         [%expr Re.Group.get _g 0]
      | Some iG ->
-        [%expr Re.Group.get _g [%e Exp.constant (Const.int (offG + iG + 1))]]
+        [%expr Re.Group.get _g [%e eint ~loc (offG + iG + 1)]]
     in
     let eG =
       if mustG then eG else
       [%expr try Some [%e eG] with Not_found -> None]
     in
     [%expr
-      let [%p Pat.var varG] = [%e eG] in
+      let [%p ppat_var ~loc varG] = [%e eG] in
       [%e wrap_group_bindings ~loc rhs offG bs]]
 
-let transform_cases ~mapper ~loc cases =
+let transform_cases ~loc cases =
   let aux case =
     if case.pc_guard <> None then
-      error ~loc "Guards are not implemented for match%pcre." else
+      error ~loc "Guards are not implemented for match%%pcre." else
     (match case.pc_lhs with
-     | { ppat_desc = Ppat_constant (Pconst_string (re_src, re_delim));
+     | { ppat_desc = Ppat_constant (Pconst_string (re_src, _loc, re_delim));
          ppat_loc = {loc_start; _}; _ } ->
         let re_offset =
           (match re_delim with Some s -> String.length s + 2 | None -> 1) in
@@ -176,25 +165,26 @@ let transform_cases ~mapper ~loc cases =
      | {ppat_loc = loc; _} ->
         error ~loc "Regular expression pattern should be a string.")
   in
-  let rewrite_case case = {case with pc_rhs = mapper.expr mapper case.pc_rhs} in
   let cases, default_rhs =
-    (match List.rev_map rewrite_case cases with
+    (match List.rev (*_map rewrite_case*) cases with
      | {pc_lhs = {ppat_desc = Ppat_any; _}; pc_rhs; pc_guard = None} :: cases ->
         (cases, pc_rhs)
      | {pc_lhs = {ppat_desc = Ppat_var var; _}; pc_rhs; pc_guard = None} ::
        cases ->
-        (cases, [%expr let [%p Pat.var var] = _ppx_regexp_v in [%e pc_rhs]])
+        let rhs =
+          [%expr let [%p ppat_var ~loc var] = _ppx_regexp_v in [%e pc_rhs]] in
+        (cases, rhs)
      | cases ->
         let open Lexing in
         let pos = loc.Location.loc_start in
-        let e0 = Exp.constant (Const.string pos.pos_fname) in
-        let e1 = Exp.constant (Const.int pos.pos_lnum) in
-        let e2 = Exp.constant (Const.int (pos.pos_cnum - pos.pos_bol)) in
+        let e0 = estring ~loc pos.pos_fname in
+        let e1 = eint ~loc pos.pos_lnum in
+        let e2 = eint ~loc (pos.pos_cnum - pos.pos_bol) in
         let e = [%expr raise (Match_failure ([%e e0], [%e e1], [%e e2]))] in
         (cases, warn ~loc "A universal case is recommended for %pcre." e))
   in
   let cases = List.rev_map aux cases in
-  let res = Exp.array (List.map (fun (re, _, _, _) -> re) cases) in
+  let res = pexp_array ~loc (List.map (fun (re, _, _, _) -> re) cases) in
   let comp = [%expr
     let a = Array.map (fun s -> Re.mark (Re.Perl.re s)) [%e res] in
     let marks = Array.map fst a in
@@ -202,61 +192,59 @@ let transform_cases ~mapper ~loc cases =
     (re, marks)
   ] in
   let var = fresh_var () in
-  add_binding (Vb.mk (Pat.var {txt = var; loc}) comp);
-  let e_comp = Exp.ident {txt = Lident var; loc} in
+  let re_binding =
+    value_binding ~loc ~pat:(ppat_var ~loc {txt = var; loc}) ~expr:comp
+  in
+  let e_comp = pexp_ident ~loc {txt = Lident var; loc} in
 
   let rec handle_cases i offG = function
    | [] -> [%expr assert false]
    | (_, nG, bs, rhs) :: cases ->
-      let e_i = Exp.constant (Const.int i) in
       [%expr
-        if Re.Mark.test _g (snd [%e e_comp]).([%e e_i]) then
+        if Re.Mark.test _g (snd [%e e_comp]).([%e eint ~loc i]) then
           [%e wrap_group_bindings ~loc rhs offG bs]
         else
           [%e handle_cases (i + 1) (offG + nG) cases]]
   in
-  [%expr
-    (match Re.exec_opt (fst [%e e_comp]) _ppx_regexp_v with
-     | None -> [%e default_rhs]
-     | Some _g -> [%e handle_cases 0 0 cases])]
+  let cases =
+    [%expr
+      (match Re.exec_opt (fst [%e e_comp]) _ppx_regexp_v with
+       | None -> [%e default_rhs]
+       | Some _g -> [%e handle_cases 0 0 cases])]
+  in
+  (cases, re_binding)
 
-let rewrite_expr mapper e_ext =
-  (match e_ext.pexp_desc with
-   | Pexp_extension ({txt = "pcre"; _},
-                     PStr [{pstr_desc = Pstr_eval (e, _); _}]) ->
-      let loc = e.pexp_loc in
-      (match e.pexp_desc with
-       | Pexp_match (e, cases) ->
-          [%expr
-            let _ppx_regexp_v = [%e e] in
-            [%e transform_cases ~mapper ~loc cases]]
-       | Pexp_function (cases) ->
-          [%expr
-            fun _ppx_regexp_v ->
-            [%e transform_cases ~mapper ~loc cases]]
-       | _ ->
-          error ~loc "[%pcre] only applies to match an function.")
-   | _ -> default_mapper.expr mapper e_ext)
+let transformation = object
+  inherit [value_binding list] Ast_traverse.fold_map as super
 
-let rewrite_structure _mapper sis =
-  let mapper = {default_mapper with expr = rewrite_expr} in
-  let sis' = default_mapper.structure mapper sis in
-  (match get_bindings () |> List.rev with
-   | [] -> sis'
-   | bindings ->
-      clear_bindings ();
-      let local_sis =
-        [%str
-          module Ppx_regexp__local = struct
-            [%%s [{
-              pstr_desc = Pstr_value (Nonrecursive, bindings);
-              pstr_loc = Location.none;
-            }]]
-          end
-          open Ppx_regexp__local]
-      in
-      local_sis @ sis')
+  method! expression e_ext acc =
+    let e_ext, acc = super#expression e_ext acc in
+    (match e_ext.pexp_desc with
+     | Pexp_extension
+         ({txt = "pcre"; _}, PStr [{pstr_desc = Pstr_eval (e, _); _}]) ->
+        let loc = e.pexp_loc in
+        (match e.pexp_desc with
+         | Pexp_match (e, cases) ->
+            let cases, binding = transform_cases ~loc cases in
+            ([%expr let _ppx_regexp_v = [%e e] in [%e cases]], binding :: acc)
+         | Pexp_function (cases) ->
+            let cases, binding = transform_cases ~loc cases in
+            ([%expr fun _ppx_regexp_v -> [%e cases]], binding :: acc)
+         | _ ->
+            error ~loc "[%%pcre] only applies to match an function.")
+     | _ -> (e_ext, acc))
+end
 
-let () = Driver.register ~name:"ppx_regexp" ocaml_version
-  (fun _config _cookies ->
-    {default_mapper with structure = rewrite_structure; expr = rewrite_expr})
+let impl str =
+  let str, rev_bindings = transformation#structure str [] in
+  let re_str =
+    let loc = Location.none in
+    [%str
+      module Ppx_regexp__local = struct
+        [%%i pstr_value ~loc Nonrecursive rev_bindings]
+      end
+      open Ppx_regexp__local]
+  in
+  re_str @ str
+
+let () = Driver.register_transformation ~impl "ppx_regexp"

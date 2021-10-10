@@ -10,9 +10,8 @@ bug-reports: "https://github.com/paurkedal/ppx_regexp/issues"
 depends: [
   "ocaml" {>= "4.02.3"}
   "dune" {>= "1.11"}
-  "ocaml-migrate-parsetree" {>= "1.4.0"}
+  "ppxlib" {>= "0.22.2"}
   "re" {>= "1.7.1"}
-  "ppx_tools_versioned" {>= "5.2.3"}
   "qcheck" {with-test}
 ]
 build: ["dune" "build" "-p" name "-j" jobs]
