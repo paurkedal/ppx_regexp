@@ -1,4 +1,4 @@
-(* Copyright (C) 2017--2021  Petter A. Urkedal <paurkedal@gmail.com>
+(* Copyright (C) 2017--2022  Petter A. Urkedal <paurkedal@gmail.com>
  *
  * This library is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published by
@@ -140,30 +140,17 @@ let rec wrap_group_bindings ~loc rhs offG = function
 let transform_cases ~loc cases =
   let aux case =
     if case.pc_guard <> None then
-      error ~loc "Guards are not implemented for match%%pcre." else
-    (match case.pc_lhs with
-     | { ppat_desc = Ppat_constant (Pconst_string (re_src, _loc, re_delim));
-         ppat_loc = {loc_start; _}; _ } ->
+      error ~loc "Guards are not implemented for match%%pcre."
+    else
+    Ast_pattern.(parse (pstring __')) loc case.pc_lhs
+      begin fun {txt = re_src; loc = {loc_start; loc_end; _}} ->
         let re_offset =
-          (match re_delim with Some s -> String.length s + 2 | None -> 1) in
+          (loc_end.pos_cnum - loc_start.pos_cnum - String.length re_src) / 2
+        in
         let pos = {loc_start with pos_cnum = loc_start.pos_cnum + re_offset} in
         let re, bs, nG = extract_bindings ~pos re_src in
         (re, nG, bs, case.pc_rhs)
-(*
-     | {ppat_desc = Ppat_alias
-         ({ ppat_desc = Ppat_constant (Pconst_string (re_src,_));
-            ppat_loc = loc; _ },
-          var); _} ->
-        let re, bs, nG = extract_bindings ~loc re_src in
-        let rhs =
-          (* TODO: Should this be (_ppx_regexp_v or Re.Group.get _g 0? *)
-          [%expr let [%p Pat.var var] = _ppx_regexp_v in [%e case.pc_rhs]] in
-        (re, nG, bs, rhs)
-*)
-     | {ppat_desc = Ppat_any; _} ->
-        error ~loc "Universal wildcard must be the last pattern."
-     | {ppat_loc = loc; _} ->
-        error ~loc "Regular expression pattern should be a string.")
+      end
   in
   let cases, default_rhs =
     (match List.rev (*_map rewrite_case*) cases with
