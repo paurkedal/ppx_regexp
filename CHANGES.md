@@ -1,3 +1,9 @@
+## v0.5.0 - 2022-06-06
+
+- Migrate `ppx_regexp` to ppxlib.
+- Change license exception for `ppx_regexp` to the LGPL-3.0 Linking
+  Exception.
+
 ## v0.4.3 - 2019-11-25
 
 - Fixed nested `[%pcre]` usage for `ppx_regexp`.
