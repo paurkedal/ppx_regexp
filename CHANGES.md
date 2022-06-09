@@ -1,3 +1,7 @@
+## v0.5.1 - 2022-06-09
+
+- Fix invalid AST due to empty binding list in `ppx_regexp`.
+
 ## v0.5.0 - 2022-06-06
 
 - Migrate `ppx_regexp` to ppxlib.

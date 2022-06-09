@@ -9,16 +9,12 @@
 
 ; Tests for ppx_regexp
 
-(executable
-  (name test_ppx_regexp)
-  (modules test_ppx_regexp)
+(tests
+  (names test_ppx_regexp test_ppx_regexp_unused)
+  (modules test_ppx_regexp test_ppx_regexp_unused)
+  (package ppx_regexp)
   (libraries re re.perl)
   (preprocess (pps ppx_regexp)))
-(alias
-  (name runtest)
-  (package ppx_regexp)
-  (deps test_ppx_regexp.exe)
-  (action (run %{deps})))
 
 ; Tests for ppx_tyre
 

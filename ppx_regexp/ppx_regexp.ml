@@ -224,6 +224,7 @@ end
 
 let impl str =
   let str, rev_bindings = transformation#structure str [] in
+  if rev_bindings = [] then str else
   let re_str =
     let loc = Location.none in
     [%str
