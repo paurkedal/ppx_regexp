@@ -1,4 +1,4 @@
-(* Copyright (C) 2017--2022  Petter A. Urkedal <paurkedal@gmail.com>
+(* Copyright (C) 2017--2023  Petter A. Urkedal <paurkedal@gmail.com>
  *
  * This library is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published by
@@ -227,11 +227,7 @@ let impl str =
   if rev_bindings = [] then str else
   let re_str =
     let loc = Location.none in
-    [%str
-      module Ppx_regexp__local = struct
-        [%%i pstr_value ~loc Nonrecursive rev_bindings]
-      end
-      open Ppx_regexp__local]
+    [%str open (struct [%%i pstr_value ~loc Nonrecursive rev_bindings] end)]
   in
   re_str @ str
 
