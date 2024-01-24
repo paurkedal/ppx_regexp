@@ -1,6 +1,7 @@
 (library
   (name ppx_tyre)
   (public_name ppx_tyre)
+  (optional)
   (kind ppx_rewriter)
   (modules ppx_tyre regexp)
   (preprocess (pps ppx_tools_versioned.metaquot_409))

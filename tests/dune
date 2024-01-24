@@ -22,12 +22,6 @@
   (name test_ppx_tyre)
   (modules test_ppx_tyre)
   (package ppx_tyre)
+  (build_if %{lib-available:ppx_tyre})
   (libraries re re.perl)
   (preprocess (pps ppx_tyre)))
-
-; Combined preprocessor
-
-(executable
-  (name main)
-  (modules Main)
-  (libraries ppx_regexp ppx_tyre ocaml-migrate-parsetree))
