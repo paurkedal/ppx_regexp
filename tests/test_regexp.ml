@@ -1,4 +1,4 @@
-(* Copyright (C) 2018--2021  Petter A. Urkedal <paurkedal@gmail.com>
+(* Copyright (C) 2018--2024  Petter A. Urkedal <paurkedal@gmail.com>
  *
  * This library is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published by
@@ -19,7 +19,6 @@ open Printf
 module Loc = Location
 module Q = QCheck
 
-let mkloc = Loc.mkloc
 let mknoloc = Loc.mknoloc
 let map_loc f {Loc.txt = x; loc} = {Loc.txt = f x; loc}
 
@@ -37,6 +36,7 @@ module Regexp = struct
 
   let nonepsilon = function {Loc.txt = Seq []; _} -> false | _ -> true
 
+(*
   let rec collect_code = function
    | {Loc.txt = Code s1; loc = loc1} :: {Loc.txt = Code s2; loc = loc2} :: es ->
       let e12 =
@@ -51,6 +51,7 @@ module Regexp = struct
       in
       collect_code (e12 :: es)
    | es -> es
+*)
 
   let rec simplify e = map_loc simplify' e
   and simplify' = function

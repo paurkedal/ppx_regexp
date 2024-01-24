@@ -1,4 +1,4 @@
-(* Copyright (C) 2017  Petter A. Urkedal <paurkedal@gmail.com>
+(* Copyright (C) 2017--2024  Petter A. Urkedal <paurkedal@gmail.com>
  *
  * This library is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published by
@@ -97,7 +97,7 @@ let () =
 (* It should work in a functor, and Re_pcre.regxp should be lifted to the
  * top-level. *)
 module F (M : Map.OrderedType) = struct
-  let f x =
+  let _f x =
     (match%pcre x with
      | {|#(?<space>\s)?(?<comment>.*)|} -> Some (space <> None, comment)
      | _ -> None)

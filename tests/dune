@@ -18,16 +18,12 @@
 
 ; Tests for ppx_tyre
 
-(executable
+(test
   (name test_ppx_tyre)
   (modules test_ppx_tyre)
+  (package ppx_tyre)
   (libraries re re.perl)
   (preprocess (pps ppx_tyre)))
-(alias
-  (name runtest)
-  (package ppx_tyre)
-  (deps test_ppx_tyre.exe)
-  (action (run %{deps})))
 
 ; Combined preprocessor
 
