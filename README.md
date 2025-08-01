@@ -142,12 +142,14 @@ The syntax follow Perl's syntax:
 
 ## Limitations
 
-### No Pattern Guards
+### No Pattern Guards for `ppx_tyre`
 
-Pattern guards are not supported.  This is due to the fact that all match
-cases are combined into a single regular expression, so if one of the
-patterns succeed, the match is committed before we can check the guard
-condition.
+Pattern guards are not supported in `ppx_tyre`. This is due to the fact that all match
+cases are combined into a single regular expression, so if one of the patterns succeed,
+the match is committed before we can check the guard condition.
+
+`ppx_regexp` does support pattern guards by grouping cases with identical patterns
+and generating monadic handler functions that evaluate guards sequentially after a pattern matches.
 
 ### No Exhaustiveness Check
 
