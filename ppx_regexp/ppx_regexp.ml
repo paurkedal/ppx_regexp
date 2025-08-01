@@ -137,7 +137,11 @@ let rec wrap_group_bindings ~loc rhs offG = function
       let [%p ppat_var ~loc varG] = [%e eG] in
       [%e wrap_group_bindings ~loc rhs offG bs]]
 
-let transform_cases ~loc cases =
+let rec create_opts ~loc = function
+  | [] -> [%expr []]
+  | `Caseless :: xs -> [%expr `Caseless :: [%e create_opts ~loc xs]]
+
+let transform_cases ~loc ~opts cases =
   let aux case =
     if case.pc_guard <> None then
       error ~loc "Guards are not implemented for match%%pcre."
@@ -172,8 +176,9 @@ let transform_cases ~loc cases =
   in
   let cases = List.rev_map aux cases in
   let res = pexp_array ~loc (List.map (fun (re, _, _, _) -> re) cases) in
+  let opts_expr = create_opts ~loc opts in
   let comp = [%expr
-    let a = Array.map (fun s -> Re.mark (Re.Perl.re s)) [%e res] in
+    let a = Array.map (fun s -> Re.mark (Re.Perl.re ~opts:[%e opts_expr] s)) [%e res] in
     let marks = Array.map fst a in
     let re = Re.compile (Re.alt (Array.to_list (Array.map snd a))) in
     (re, marks)
@@ -208,14 +213,15 @@ let transformation = object
     let e_ext, acc = super#expression e_ext acc in
     (match e_ext.pexp_desc with
      | Pexp_extension
-         ({txt = "pcre"; _}, PStr [{pstr_desc = Pstr_eval (e, _); _}]) ->
+         ({txt = ("pcre" | "pcre_i") as ext; _}, PStr [{pstr_desc = Pstr_eval (e, _); _}]) ->
+        let opts = if String.ends_with ~suffix:"_i" ext then [`Caseless] else [] in
         let loc = e.pexp_loc in
         (match e.pexp_desc with
          | Pexp_match (e, cases) ->
-            let cases, binding = transform_cases ~loc cases in
+            let cases, binding = transform_cases ~loc ~opts cases in
             ([%expr let _ppx_regexp_v = [%e e] in [%e cases]], binding :: acc)
          | Pexp_function (cases) ->
-            let cases, binding = transform_cases ~loc cases in
+            let cases, binding = transform_cases ~loc ~opts cases in
             ([%expr fun _ppx_regexp_v -> [%e cases]], binding :: acc)
          | _ ->
             error ~loc "[%%pcre] only applies to match an function.")

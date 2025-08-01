@@ -39,6 +39,10 @@ A variable is allowed for the universal case and is bound to the matched
 string.  A regular alias is currently not allowed for patterns, since it is
 not obvious whether is should bind the full string or group 0.
 
+### Case-Insensitive Match
+
+An extension, `%pcre_i`, is available for case-insensitive matching.
+
 ### Example
 
 The following prints out times and hosts for SMTP connections to the Postfix
