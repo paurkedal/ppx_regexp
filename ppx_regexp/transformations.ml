@@ -450,8 +450,16 @@ let transform_mixed_match ~loc ~ctx ?matched_expr cases acc =
             match case with
             | `Ext (opts, re, _, _, _, _) ->
               let comp_var = Util.fresh_var () in
-              let opts_expr = create_opts ~loc opts in
-              let comp_expr = [%expr Re.compile (Re.Perl.re ~opts:[%e opts_expr] [%e re])] in
+              let apply_opts re_expr =
+                let rec apply re = function
+                  | [] -> re
+                  | `Caseless :: rest -> apply [%expr Re.no_case [%e re]] rest
+                  | `Anchored :: rest -> apply [%expr Re.whole_string [%e re]] rest
+                in
+                apply re_expr opts
+              in
+              let re_with_opts = apply_opts re in
+              let comp_expr = [%expr Re.compile [%e re_with_opts]] in
               let binding = value_binding ~loc ~pat:(ppat_var ~loc { txt = comp_var; loc }) ~expr:comp_expr in
               Some (i, comp_var, binding)
             | _ -> None
