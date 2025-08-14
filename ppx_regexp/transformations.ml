@@ -210,6 +210,7 @@ let transform_let ~mode ~ctx =
     end
 
 let transform_cases ~mode ~opts ~loc ~ctx cases =
+  let _ = opts in
   let aux case =
     Ast_pattern.(parse (pstring __'))
       loc case.pc_lhs
@@ -302,13 +303,18 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
   let processed_cases = List.map aux cases in
   let case_groups = group_by_guard_and_re processed_cases in
 
-  let compiled_groups = List.mapi (fun i x -> compile_group i x) case_groups in
+  let compiled_groups =
+    List.mapi
+      (fun i group_cases ->
+        let re_var_name = Util.fresh_var () in
+        let re_array, handlers = compile_group i group_cases in
+        re_var_name, re_array, handlers)
+      case_groups
+  in
 
   let re_bindings =
-    List.mapi
-      (fun i (re_array, _) ->
-        let var_name = Printf.sprintf "_re_group_%d" i in
-        let _opts_expr = create_opts ~loc opts in
+    List.map
+      (fun (var_name, re_array, _) ->
         let comp_expr =
           [%expr
             let a = Array.map (fun re -> Re.mark re) [%e re_array] in
@@ -322,18 +328,19 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
 
   let handler_bindings =
     List.concat_map
-      (fun (_, handlers) -> List.map (fun (name, body) -> value_binding ~loc ~pat:(ppat_var ~loc { txt = name; loc }) ~expr:body) handlers)
+      (fun (_, _, handlers) ->
+        List.map (fun (name, body) -> value_binding ~loc ~pat:(ppat_var ~loc { txt = name; loc }) ~expr:body) handlers)
       compiled_groups
   in
 
   let match_expr =
     let groups_with_info =
       List.mapi
-        (fun i group ->
+        (fun i (re_var_name, _, handlers) ->
           let group_cases = List.nth case_groups i in
           let has_guards = List.exists (fun (_, _, _, _, g) -> g <> None) group_cases in
           let is_single = List.length group_cases = 1 in
-          i, group, has_guards, is_single)
+          i, re_var_name, handlers, has_guards, is_single)
         compiled_groups
     in
 
@@ -343,26 +350,24 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
           [%e
             let group_cases =
               List.map
-                (fun (idx, (_, handlers), has_guards, is_single) ->
-                  let re_var = Printf.sprintf "_re_group_%d" idx in
-
+                (fun (idx, re_var_name, handlers, has_guards, is_single) ->
                   let match_expr =
                     if is_single && not has_guards then (
                       (* single pattern, no guard: skip marks and dispatcher *)
                       let handler_name = fst (List.hd handlers) in
                       [%expr
-                        match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var; loc }]) _ppx_regexp_v with
+                        match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var_name; loc }]) _ppx_regexp_v with
                         | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1)
                         | Some _g ->
                           (* direct call to handler, no dispatcher needed *)
                           (match [%e pexp_ident ~loc { txt = Lident handler_name; loc }] _g with
                           | Some result -> result
-                          | None -> assert false (* Single pattern without guard should never fail *))])
+                          | None -> assert false)])
                     else if is_single && has_guards then (
                       (* single pattern with guard: still skip dispatcher but handle None *)
                       let handler_name = fst (List.hd handlers) in
                       [%expr
-                        match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var; loc }]) _ppx_regexp_v with
+                        match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var_name; loc }]) _ppx_regexp_v with
                         | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1)
                         | Some _g ->
                           (match [%e pexp_ident ~loc { txt = Lident handler_name; loc }] _g with
@@ -376,18 +381,22 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
 
                       if has_guards then
                         [%expr
-                          match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var; loc }]) _ppx_regexp_v with
+                          match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var_name; loc }]) _ppx_regexp_v with
                           | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1)
                           | Some _g ->
-                            (match __ppx_regexp_dispatch (snd [%e pexp_ident ~loc { txt = Lident re_var; loc }]) [%e handlers_array] _g with
+                            (match
+                               __ppx_regexp_dispatch (snd [%e pexp_ident ~loc { txt = Lident re_var_name; loc }]) [%e handlers_array] _g
+                             with
                             | Some result -> result
                             | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1))]
                       else
                         [%expr
-                          match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var; loc }]) _ppx_regexp_v with
+                          match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var_name; loc }]) _ppx_regexp_v with
                           | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1)
                           | Some _g ->
-                            (match __ppx_regexp_dispatch (snd [%e pexp_ident ~loc { txt = Lident re_var; loc }]) [%e handlers_array] _g with
+                            (match
+                               __ppx_regexp_dispatch (snd [%e pexp_ident ~loc { txt = Lident re_var_name; loc }]) [%e handlers_array] _g
+                             with
                             | Some result -> result
                             | None -> assert false)])
                   in
