@@ -359,11 +359,19 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
   let match_expr =
     let groups_with_info =
       List.mapi
-        (fun i (re_var_name, _, handlers) ->
+        (fun i (re_var_name, re_array, handlers) ->
           let group_cases = List.nth case_groups i in
           let has_guards = List.exists (fun (_, _, _, _, g) -> g <> None) group_cases in
-          let is_single = List.length group_cases = 1 in
-          i, re_var_name, handlers, has_guards, is_single)
+
+          (* Check if this is truly a single pattern by looking at the re_array *)
+          let is_single_pattern =
+            match re_array.pexp_desc with
+            | Pexp_array [ _ ] -> true (* Only one RE in the array *)
+            | Pexp_array [] -> true (* Empty array (shouldn't happen) *)
+            | _ -> false
+          in
+
+          i, re_var_name, handlers, has_guards, is_single_pattern)
         compiled_groups
     in
 
@@ -373,31 +381,23 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
           [%e
             let group_cases =
               List.map
-                (fun (idx, re_var_name, handlers, has_guards, is_single) ->
+                (fun (idx, re_var_name, handlers, has_guards, is_single_pattern) ->
                   let match_expr =
-                    if is_single && not has_guards then (
-                      (* single pattern, no guard: skip marks and dispatcher *)
+                    if is_single_pattern then (
+                      (* Single pattern - call handler directly, no dispatcher *)
                       let handler_name = fst (List.hd handlers) in
                       [%expr
                         match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var_name; loc }]) _ppx_regexp_v with
                         | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1)
                         | Some _g ->
-                          (* direct call to handler, no dispatcher needed *)
+                          (* Direct call to handler, no dispatcher *)
                           (match [%e pexp_ident ~loc { txt = Lident handler_name; loc }] _g with
                           | Some result -> result
-                          | None -> assert false)])
-                    else if is_single && has_guards then (
-                      (* single pattern with guard: still skip dispatcher but handle None *)
-                      let handler_name = fst (List.hd handlers) in
-                      [%expr
-                        match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var_name; loc }]) _ppx_regexp_v with
-                        | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1)
-                        | Some _g ->
-                          (match [%e pexp_ident ~loc { txt = Lident handler_name; loc }] _g with
-                          | Some result -> result
-                          | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1))])
+                          | None ->
+                            (* Handler returned None - guard must have failed *)
+                            __ppx_regexp_try_next ([%e eint ~loc idx] + 1))])
                     else (
-                      (* multiple patterns: need marks and dispatcher *)
+                      (* Multiple patterns: need marks and dispatcher *)
                       let handlers_array =
                         pexp_array ~loc @@ List.map (fun (name, _) -> pexp_ident ~loc { txt = Lident name; loc }) handlers
                       in
