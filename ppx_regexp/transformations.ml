@@ -297,6 +297,14 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
 
     re_array, handlers
   in
+  let apply_opts re_expr =
+    let rec apply re = function
+      | [] -> re
+      | `Caseless :: rest -> apply [%expr Re.no_case [%e re]] rest
+      | `Anchored :: rest -> apply [%expr Re.whole_string [%e re]] rest
+    in
+    apply re_expr opts
+  in
 
   let cases, default_cases = separate_defaults [] cases in
   let default_rhs = make_default_rhs ~loc default_cases in
@@ -315,12 +323,27 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
   let re_bindings =
     List.map
       (fun (var_name, re_array, _) ->
+        let is_single = match re_array.pexp_desc with Pexp_array [ _ ] -> true | _ -> false in
+
         let comp_expr =
-          [%expr
-            let a = Array.map (fun re -> Re.mark re) [%e re_array] in
-            let marks = Array.map fst a in
-            let re = Re.compile (Re.alt (Array.to_list (Array.map snd a))) in
-            re, marks]
+          if is_single then (
+            (* Single pattern - no marks needed *)
+            let single_re = match re_array.pexp_desc with Pexp_array [ re ] -> re | _ -> assert false in
+            [%expr
+              let re = Re.compile [%e apply_opts single_re] in
+              re, [||]])
+          else (
+            (* Multiple patterns - apply opts to each then mark *)
+            let res_with_opts =
+              match re_array.pexp_desc with
+              | Pexp_array res -> res |> List.map (fun re -> [%expr Re.mark [%e apply_opts re]])
+              | _ -> assert false
+            in
+            [%expr
+              let a = [%e pexp_array ~loc res_with_opts] in
+              let marks = Array.map fst a in
+              let re = Re.compile (Re.alt (Array.to_list (Array.map snd a))) in
+              re, marks])
         in
         value_binding ~loc ~pat:(ppat_var ~loc { txt = var_name; loc }) ~expr:comp_expr)
       compiled_groups
