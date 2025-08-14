@@ -28,37 +28,40 @@ module Regexp = struct
     in
     function { Location.txt = Capture_as (idr, conv, e); _ } -> recurse true e (0, [ idr, None, conv, true ]) | e -> recurse true e (0, [])
 
-  let rec to_re_expr ~loc ~ctx (e : _ Location.loc) =
-    match e.Location.txt with
-    | Code s -> [%expr Re.Perl.re [%e estring ~loc s]]
-    | Seq es ->
-      let exprs = List.map (to_re_expr ~loc ~ctx) es in
-      [%expr Re.seq [%e elist ~loc exprs]]
-    | Alt es ->
-      let exprs = List.map (to_re_expr ~loc ~ctx) es in
-      [%expr Re.alt [%e elist ~loc exprs]]
-    | Opt e -> [%expr Re.opt [%e to_re_expr ~loc ~ctx e]]
-    | Repeat ({ Location.txt = i, j_opt; _ }, e) ->
-      let e_i = eint ~loc i in
-      let e_j = match j_opt with None -> [%expr None] | Some j -> [%expr Some [%e eint ~loc j]] in
-      [%expr Re.repn [%e to_re_expr ~loc ~ctx e] [%e e_i] [%e e_j]]
-    | Nongreedy e -> [%expr Re.non_greedy [%e to_re_expr ~loc ~ctx e]]
-    | Capture _ -> Util.error ~loc "Unnamed capture is not allowed for %%pcre and %%mikmatch."
-    | Capture_as (_, _, e) -> [%expr Re.group [%e to_re_expr ~loc ~ctx e]]
-    | Named_subs (idr, _, _, _) ->
-      let content = get_substitution ~loc ~ctx idr in
-      [%expr Re.group [%e to_re_expr ~loc ~ctx content]]
-    | Unnamed_subs (idr, _) ->
-      let content = get_substitution ~loc ~ctx idr in
-      to_re_expr ~loc ~ctx content
-    | Pipe_all (_, _, e) -> to_re_expr ~loc ~ctx e
-    | Call _ -> Util.error ~loc "Call is not allowed for %%pcre and %%mikmatch."
-
-  and get_substitution ~loc ~ctx idr =
-    let var_name = idr.txt in
-    match Util.Ctx.find var_name ctx with
-    | Some value -> value
-    | None -> Util.error ~loc "Variable '%s' not found. %%pcre and %%mikmatch only support global let bindings for substitution." var_name
+  let to_re_expr ~ctx =
+    let rec recurse ~ctx (e' : _ Location.loc) =
+      let loc = e'.Location.loc in
+      match e'.Location.txt with
+      | Code s -> [%expr Re.Perl.re [%e estring ~loc s]]
+      | Seq es ->
+        let exprs = List.map (recurse ~ctx) es in
+        [%expr Re.seq [%e elist ~loc exprs]]
+      | Alt es ->
+        let exprs = List.map (recurse ~ctx) es in
+        [%expr Re.alt [%e elist ~loc exprs]]
+      | Opt e -> [%expr Re.opt [%e recurse ~ctx e]]
+      | Repeat ({ Location.txt = i, j_opt; _ }, e) ->
+        let e_i = eint ~loc i in
+        let e_j = match j_opt with None -> [%expr None] | Some j -> [%expr Some [%e eint ~loc j]] in
+        [%expr Re.repn [%e recurse ~ctx e] [%e e_i] [%e e_j]]
+      | Nongreedy e -> [%expr Re.non_greedy [%e recurse ~ctx e]]
+      | Capture _ -> Util.error ~loc "Unnamed capture is not allowed for %%pcre and %%mikmatch."
+      | Capture_as (_, _, e) -> [%expr Re.group [%e recurse ~ctx e]]
+      | Named_subs (idr, _, _, _) ->
+        let content = get_substitution ~loc ~ctx idr in
+        [%expr Re.group [%e recurse ~ctx content]]
+      | Unnamed_subs (idr, _) ->
+        let content = get_substitution ~loc ~ctx idr in
+        recurse ~ctx content
+      | Pipe_all (_, _, e) -> recurse ~ctx e
+      | Call _ -> Util.error ~loc "Call is not allowed for %%pcre and %%mikmatch."
+    and get_substitution ~loc ~ctx idr =
+      let var_name = idr.txt in
+      match Util.Ctx.find var_name ctx with
+      | Some value -> value
+      | None -> Util.error ~loc "Variable '%s' not found. %%pcre and %%mikmatch only support global let bindings for substitution." var_name
+    in
+    function { Location.txt = Capture_as (_, _, e); _ } -> recurse ~ctx e | e -> recurse ~ctx e
 
   let to_string ~ctx =
     let p_alt, p_seq, p_suffix, p_atom = 0, 1, 2, 3 in
@@ -148,9 +151,10 @@ let rec create_opts ~loc = function
 let extract_bindings ~(parser : ?pos:position -> string -> string Regexp_types.t) ~ctx ~pos s =
   let r = parser ~pos s in
   let nG, bs = Regexp.bindings r in
-  let re_str = Regexp.to_string ~ctx r in
-  let loc = Location.none in
-  estring ~loc re_str, bs, nG
+  (* let re_str = Regexp.to_string ~ctx r in *)
+  let re = Regexp.to_re_expr ~ctx r in
+  (* let loc = Location.none in *)
+  re, bs, nG
 
 let make_default_rhs ~loc = function
   | [] ->
@@ -304,10 +308,10 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
     List.mapi
       (fun i (re_array, _) ->
         let var_name = Printf.sprintf "_re_group_%d" i in
-        let opts_expr = create_opts ~loc opts in
+        let _opts_expr = create_opts ~loc opts in
         let comp_expr =
           [%expr
-            let a = Array.map (fun s -> Re.mark (Re.Perl.re ~opts:[%e opts_expr] s)) [%e re_array] in
+            let a = Array.map (fun re -> Re.mark re) [%e re_array] in
             let marks = Array.map fst a in
             let re = Re.compile (Re.alt (Array.to_list (Array.map snd a))) in
             re, marks]
@@ -335,7 +339,7 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
 
     let match_cascade =
       [%expr
-        let rec try_next group_idx =
+        let rec __ppx_regexp_try_next group_idx =
           [%e
             let group_cases =
               List.map
@@ -348,9 +352,9 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
                       let handler_name = fst (List.hd handlers) in
                       [%expr
                         match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var; loc }]) _ppx_regexp_v with
-                        | None -> try_next ([%e eint ~loc idx] + 1)
+                        | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1)
                         | Some _g ->
-                          (* Direct call to handler, no dispatcher needed *)
+                          (* direct call to handler, no dispatcher needed *)
                           (match [%e pexp_ident ~loc { txt = Lident handler_name; loc }] _g with
                           | Some result -> result
                           | None -> assert false (* Single pattern without guard should never fail *))])
@@ -359,11 +363,11 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
                       let handler_name = fst (List.hd handlers) in
                       [%expr
                         match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var; loc }]) _ppx_regexp_v with
-                        | None -> try_next ([%e eint ~loc idx] + 1)
+                        | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1)
                         | Some _g ->
                           (match [%e pexp_ident ~loc { txt = Lident handler_name; loc }] _g with
                           | Some result -> result
-                          | None -> try_next ([%e eint ~loc idx] + 1))])
+                          | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1))])
                     else (
                       (* multiple patterns: need marks and dispatcher *)
                       let handlers_array =
@@ -373,15 +377,15 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
                       if has_guards then
                         [%expr
                           match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var; loc }]) _ppx_regexp_v with
-                          | None -> try_next ([%e eint ~loc idx] + 1)
+                          | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1)
                           | Some _g ->
                             (match __ppx_regexp_dispatch (snd [%e pexp_ident ~loc { txt = Lident re_var; loc }]) [%e handlers_array] _g with
                             | Some result -> result
-                            | None -> try_next ([%e eint ~loc idx] + 1))]
+                            | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1))]
                       else
                         [%expr
                           match Re.exec_opt (fst [%e pexp_ident ~loc { txt = Lident re_var; loc }]) _ppx_regexp_v with
-                          | None -> try_next ([%e eint ~loc idx] + 1)
+                          | None -> __ppx_regexp_try_next ([%e eint ~loc idx] + 1)
                           | Some _g ->
                             (match __ppx_regexp_dispatch (snd [%e pexp_ident ~loc { txt = Lident re_var; loc }]) [%e handlers_array] _g with
                             | Some result -> result
@@ -396,7 +400,7 @@ let transform_cases ~mode ~opts ~loc ~ctx cases =
 
             pexp_match ~loc [%expr group_idx] (group_cases @ [ default_case ])]
         in
-        try_next 0]
+        __ppx_regexp_try_next 0]
     in
     match_cascade
   in
