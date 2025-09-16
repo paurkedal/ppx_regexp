@@ -32,6 +32,10 @@ into suitable invocations of the [Re library][re], and similar for
     the whole pattern matches, and `string option` if the variable is bound
     to or nested below an optionally matched group.
 
+  - `(?&<var>)` gets substituted by the value of the `%pcre` extended string variable named `var`. Doesn't bind.
+
+  - `(?&<v>:<qname>)` is a shortcut for `(?<v>(?&<qname>))`.
+
   - `?<var>` at the start of a pattern binds group 0 as `var : string`.
     This may not be the full string if the pattern is unanchored.
 

@@ -51,46 +51,75 @@ module Regexp = struct
        | Capture_as (idr, e) ->
           fun (nG, bs) ->
             recurse must_match e (nG + 1, (idr, Some nG, must_match) :: bs)
-       | Call _ -> error ~loc "(&...) is not implemented for %%pcre.")
+       | Call _ -> fun (nG, bs) -> (nG + 1, bs))
     in
     (function
      | {Location.txt = Capture_as (idr, e); _} ->
-        recurse true e (0, [idr, None, true])
+        recurse true e (1, [idr, Some 0, true])
      | e ->
         recurse true e (0, []))
 
-  let to_string =
-    let p_alt, p_seq, p_suffix, p_atom = 0, 1, 2, 3 in
-    let delimit_if b s = if b then "(?:" ^ s ^ ")" else s in
-    let rec recurse p (e' : _ Location.loc) =
-      let loc = e'.Location.loc in
-      (match e'.Location.txt with
-       | Code s ->
-          (* Delimiters not needed as Regexp.parse_exn only returns single
-           * chars, csets, and escape sequences. *)
-          s
-       | Seq es ->
-          delimit_if (p > p_seq)
-            (String.concat "" (List.map (recurse p_seq) es))
-       | Alt es ->
-          delimit_if (p > p_alt)
-            (String.concat "|" (List.map (recurse p_alt) es))
-       | Opt e ->
-          delimit_if (p > p_suffix) (recurse p_atom e ^ "?")
-       | Repeat ({Location.txt = (i, j_opt); _}, e) ->
-          let j_str = match j_opt with None -> "" | Some j -> string_of_int j in
-          delimit_if (p > p_suffix)
-            (Printf.sprintf "%s{%d,%s}" (recurse p_atom e) i j_str)
-       | Nongreedy e -> recurse p_suffix e ^ "?"
-       | Capture _ -> error ~loc "Unnamed capture is not allowed for %%pcre."
-       | Capture_as (_, e) -> "(" ^ recurse p_alt e ^ ")"
-       | Call _ -> error ~loc "(&...) is not implemented for %%pcre.")
+  let rec to_re_expr ~loc ~in_let (e : _ Location.loc) =
+    let open Ast_builder.Default in
+    match e.Location.txt with
+    | Code s ->
+        [%expr Re.Perl.re [%e estring ~loc s]]
+    | Seq es ->
+        let exprs = List.map (to_re_expr ~loc ~in_let) es in
+        [%expr Re.seq [%e elist ~loc exprs]]
+    | Alt es ->
+        let exprs = List.map (to_re_expr ~loc ~in_let) es in
+        [%expr Re.alt [%e elist ~loc exprs]]
+    | Opt e ->
+        [%expr Re.opt [%e to_re_expr ~loc ~in_let e]]
+    | Repeat ({Location.txt = (i, j_opt); _}, e) ->
+        let e_i = eint ~loc i in
+        let e_j = match j_opt with
+          | None -> [%expr None]
+          | Some j -> [%expr Some [%e eint ~loc j]]
+        in
+        [%expr Re.repn [%e to_re_expr ~loc ~in_let e] [%e e_i] [%e e_j]]
+    | Nongreedy e ->
+        [%expr Re.non_greedy [%e to_re_expr ~loc ~in_let e]]
+    | Capture e ->
+        [%expr Re.group [%e to_re_expr ~loc ~in_let e]]
+    | Capture_as (_, e) ->
+        [%expr Re.group [%e to_re_expr ~loc ~in_let e]]
+    | Call lid ->
+        if in_let then pexp_ident ~loc lid else
+        [%expr Re.group [%e pexp_ident ~loc lid]]
+
+  let rec squash_codes (e : _ Location.loc) : _ Location.loc =
+    let open Location in
+    let rec combine (nodes : _ Location.loc list) =
+      match nodes with
+      | [] -> []
+      | {Location.txt = Code s1; loc = loc1} :: {Location.txt = Code s2; loc = loc2} :: rest ->
+          let combined_loc =
+            if loc1 = Location.none || loc2 = Location.none then Location.none
+            else Location.{
+              loc_start = loc1.loc_start;
+              loc_end = loc2.loc_end;
+              loc_ghost = false;
+            }
+          in
+          combine ({Location.txt = Code (s1 ^ s2); loc = combined_loc} :: rest)
+      | node :: rest -> node :: combine rest
     in
-    (function
-     | {Location.txt = Capture_as (_, e); _} ->
-        recurse 0 e
-     | e ->
-        recurse 0 e)
+    match e.txt with
+    | Code _ -> e
+    | Seq es ->
+        let es = List.map squash_codes es in
+        {e with txt = Seq (combine es)}
+    | Alt es ->
+        let es = List.map squash_codes es in
+        {e with txt = Alt es}
+    | Opt e' -> {e with txt = Opt (squash_codes e')}
+    | Repeat (range, e') -> {e with txt = Repeat (range, squash_codes e')}
+    | Nongreedy e' -> {e with txt = Nongreedy (squash_codes e')}
+    | Capture e' -> {e with txt = Capture (squash_codes e')}
+    | Capture_as (name, e') -> {e with txt = Capture_as (name, squash_codes e')}
+    | Call _ -> e
 end
 
 let fresh_var =
@@ -114,11 +143,11 @@ let rec must_match p i =
     true
 
 let extract_bindings ~pos s =
-  let r = Regexp.parse_exn ~pos s in
+  let r = Regexp.(squash_codes @@ parse_exn ~pos s) in
   let nG, bs = Regexp.bindings r in
-  let re_str = Regexp.to_string r in
   let loc = Location.none in
-  (estring ~loc re_str, bs, nG)
+  let re_expr = Regexp.to_re_expr ~loc ~in_let:false r in
+  (re_expr, bs, nG)
 
 let rec wrap_group_bindings ~loc rhs offG = function
  | [] -> rhs
@@ -136,6 +165,19 @@ let rec wrap_group_bindings ~loc rhs offG = function
     [%expr
       let [%p ppat_var ~loc varG] = [%e eG] in
       [%e wrap_group_bindings ~loc rhs offG bs]]
+
+let transform_let =
+  List.map
+    begin
+      fun vb ->
+        match vb.pvb_pat.ppat_desc, vb.pvb_expr.pexp_desc with
+        | Ppat_var { txt = _; loc }, Pexp_constant (Pconst_string (value, _, _)) ->
+          let parsed = Regexp.(squash_codes @@ parse_exn value) in
+          let re_expr = Regexp.to_re_expr ~loc ~in_let:true parsed in
+          let expr = [%expr [%e re_expr]] in
+          { vb with pvb_expr = expr }
+        | _ -> vb
+    end
 
 let transform_cases ~loc cases =
   let aux case =
@@ -173,7 +215,7 @@ let transform_cases ~loc cases =
   let cases = List.rev_map aux cases in
   let res = pexp_array ~loc (List.map (fun (re, _, _, _) -> re) cases) in
   let comp = [%expr
-    let a = Array.map (fun s -> Re.mark (Re.Perl.re s)) [%e res] in
+    let a = Array.map (fun re -> Re.mark re) [%e res] in
     let marks = Array.map fst a in
     let re = Re.compile (Re.alt (Array.to_list (Array.map snd a))) in
     (re, marks)
@@ -202,10 +244,19 @@ let transform_cases ~loc cases =
   (cases, re_binding)
 
 let transformation = object
-  inherit [value_binding list] Ast_traverse.fold_map as super
+  inherit [value_binding list * value_binding list] Ast_traverse.fold_map as super
+
+    method! structure_item item (acc, let_acc) =
+      match item.pstr_desc with
+      (* let%pcre x = {|some regex|}*)
+      | Pstr_extension (({ txt = "pcre"; loc }, PStr [ { pstr_desc = Pstr_value (Nonrecursive, vbs); _ } ]), _) ->
+        let bindings = transform_let vbs in
+        let dummy = {item with pstr_desc = Pstr_eval ([%expr ()], [])} in
+        dummy, (acc, bindings @ let_acc)
+      | _ -> super#structure_item item (acc, let_acc)
 
   method! expression e_ext acc =
-    let e_ext, acc = super#expression e_ext acc in
+    let e_ext, (acc, let_acc) = super#expression e_ext acc in
     (match e_ext.pexp_desc with
      | Pexp_extension
          ({txt = "pcre"; _}, PStr [{pstr_desc = Pstr_eval (e, _); _}]) ->
@@ -213,22 +264,26 @@ let transformation = object
         (match e.pexp_desc with
          | Pexp_match (e, cases) ->
             let cases, binding = transform_cases ~loc cases in
-            ([%expr let _ppx_regexp_v = [%e e] in [%e cases]], binding :: acc)
+            ([%expr let _ppx_regexp_v = [%e e] in [%e cases]], (binding :: acc, let_acc))
          | Pexp_function (cases) ->
             let cases, binding = transform_cases ~loc cases in
-            ([%expr fun _ppx_regexp_v -> [%e cases]], binding :: acc)
+            ([%expr fun _ppx_regexp_v -> [%e cases]], (binding :: acc, let_acc))
          | _ ->
             error ~loc "[%%pcre] only applies to match an function.")
-     | _ -> (e_ext, acc))
+     | _ -> (e_ext, (acc, let_acc)))
 end
 
 let impl str =
-  let str, rev_bindings = transformation#structure str [] in
+  let str, (rev_bindings, let_bindings) = transformation#structure str ([], []) in
   if rev_bindings = [] then str else
-  let re_str =
     let loc = Location.none in
-    [%str open (struct [%%i pstr_value ~loc Nonrecursive rev_bindings] end)]
-  in
-  re_str @ str
+    let all_bindings = List.rev let_bindings @ rev_bindings in
+    let struct_items =
+      List.fold_left (fun acc binding ->
+        acc @ [%str let [%p binding.pvb_pat] = [%e binding.pvb_expr]]
+      ) [] all_bindings
+    in
+    let mod_expr = pmod_structure ~loc struct_items in
+    [%str open [%m mod_expr]] @ str
 
 let () = Driver.register_transformation ~impl "ppx_regexp"

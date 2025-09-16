@@ -76,6 +76,23 @@ let test5 = function%pcre
      | _ -> assert false)
  | _ -> assert false
 
+let%pcre digit = {|[0-9]|}
+let%pcre word = {|[a-zA-Z]+|}
+let%pcre sep = {|[,;]|}
+let%pcre sep_spc = {|(?&sep)| |}
+
+let test6 = function%pcre
+  | {|^(?&digit)+$|} -> `AllDigits
+  | {|^(?&word)(?&sep_spc)(?&word)$|} -> `TwoWords
+  | {|^(?<first>(?&digit)+)-(?<second>(?&digit)+)$|} -> `Range (first, second)
+  | _ -> `Unknown
+
+let test7 = function%pcre
+  | {|^(?&num:digit)+$|} -> `Digit num
+  | {|^(?&a:digit){2}-(?&b:digit){3}$|} -> (* repetitions after subst capture the last match *) `Code (a, b)
+  | {|^(?&w1:word)(?&sep_spc)(?&w2:word)$|} -> `Words (w1, w2)
+  | _ -> `Unknown
+
 let () =
   test2 "<>";
   test2 "<a>";
@@ -92,7 +109,16 @@ let () =
   test3 "catch-all";
   assert (test4 "::123.456::" = ["123.456"]);
   assert (test4 "::abc xyz::" = ["abc"; "xyz"]);
-  assert (test5 "abcd" = ("bcd", "cd", "d"))
+  assert (test5 "abcd" = ("bcd", "cd", "d"));
+  assert (test6 "12345" = `AllDigits);
+  assert (test6 "hello world" = `TwoWords);
+  assert (test6 "hello,world" = `TwoWords);
+  assert (test6 "123-456" = `Range ("123", "456"));
+  assert (test6 "abc123" = `Unknown);
+  assert (test7 "999" = `Digit "9");
+  assert (test7 "hello world" = `Words ("hello", "world"));
+  assert (test7 "12-345" = `Code ("2", "5"));
+  assert (test7 "xyz" = `Unknown)
 
 (* It should work in a functor, and Re_pcre.regxp should be lifted to the
  * top-level. *)
