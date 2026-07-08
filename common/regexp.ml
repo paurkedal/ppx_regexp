@@ -108,19 +108,28 @@ let parse_exn ?(pos = Lexing.dummy_pos) s =
      | 'A'..'Z' | 'a'..'z' | '_' -> scan_cont (i + 1)
      | _ -> fail (i, i) "Expecting an identifier.")
   in
-  let rec scan_longident_cont lidr i =
-    if get i <> '.' then (i, lidr) else
+  let rec scan_longident_parts parts i =
+    if get i <> '.' then (i, List.rev parts) else
     let j, idr = scan_ident (i + 1) in
-    scan_longident_cont (Longident.Ldot (lidr, idr)) j
+    scan_longident_parts (idr :: parts) j
+  in
+  let build_longident parts =
+    match Longident.unflatten parts with
+    | Some lid -> lid
+    | None -> assert false  (* parts is always non-empty *)
   in
   let scan_longident i =
     let j, idr = scan_ident i in
-    scan_longident_cont (Longident.Lident idr) j
+    let k, parts = scan_longident_parts [idr] j in
+    (k, build_longident parts)
   in
   let scan_ident = with_loc scan_ident in
   let scan_longident = with_loc scan_longident in
   let scan_longident_cont idr =
-    with_loc (scan_longident_cont (Longident.Lident idr)) in
+    with_loc (fun i ->
+      let j, parts = scan_longident_parts [idr] i in
+      (j, build_longident parts))
+  in
 
   (* Non-Nested Parts *)
   let re_perl (i, j) =
