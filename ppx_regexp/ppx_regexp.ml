@@ -214,7 +214,7 @@ let transformation = object
          | Pexp_match (e, cases) ->
             let cases, binding = transform_cases ~loc cases in
             ([%expr let _ppx_regexp_v = [%e e] in [%e cases]], binding :: acc)
-         | Pexp_function (cases) ->
+         | Pexp_function ([], None, Pfunction_cases (cases, _, _)) ->
             let cases, binding = transform_cases ~loc cases in
             ([%expr fun _ppx_regexp_v -> [%e cases]], binding :: acc)
          | _ ->

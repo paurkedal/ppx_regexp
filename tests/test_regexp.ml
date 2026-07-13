@@ -216,7 +216,7 @@ let gen_name =
   in
   let idrfst = map idrletter (int_bound (27 - 1)) in
   let idrcnt = map idrletter (int_bound (63 - 1)) in
-  map2 (fun c s -> String.make 1 c ^ s) idrfst (string ~gen:idrcnt)
+  map2 (fun c s -> String.make 1 c ^ s) idrfst (string_of idrcnt)
 
 let gen_regexp =
   let open Q.Gen in
@@ -246,7 +246,7 @@ let gen_regexp =
       map (fun e -> mknoloc (Capture e)) (self n) in
     let gen_capture_as =
       map2 (fun a e -> mknoloc (Capture_as (mknoloc a, e))) gen_name (self n) in
-    frequency [
+    oneof_weighted [
       1, gen_char;
       1, gen_backlash_op;
       1, gen_quoted_op;
@@ -323,7 +323,7 @@ let tests = [
           Q.Test.fail_reportf "%a" pp_location_error err
        | e' -> Regexp.equal e' e));
   Q.Test.make ~long_factor:100 ~name:"to_string ∘ parse"
-    (Q.string_gen Q.Gen.printable) test_parse;
+    (Q.string_of Q.Gen.printable) test_parse;
 ]
 
 let () = QCheck_runner.run_tests_main tests
